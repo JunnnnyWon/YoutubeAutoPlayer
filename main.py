@@ -42,14 +42,27 @@ def main():
     # ===== 여기서 시간 설정하세요! =====
     # 여러 개의 시간 쌍을 설정할 수 있습니다
     schedule_times = [
-        {"start": "12:30", "end": "13:00", "name": "점심시간"},  # 점심시간 방송
-        {"start": "18:00", "end": "18:30", "name": "저녁시간"},  # 저녁시간 방송
-        # 추가 시간대를 원하면 아래와 같이 더 추가하세요:
-        # {"start": "09:00", "end": "09:05", "name": "아침방송"},
+        {
+            "start": "12:30",
+            "end": "13:00", 
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "name": "점심시간"
+        },  # 점심시간 방송
+        {
+            "start": "18:00",
+            "end": "18:30", 
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "name": "저녁시간"
+        },  # 저녁시간 방송
+    # 추가 시간대를 원하면 아래와 같이 더 추가하세요:
+    #   {
+    #       "start": "09:00", 
+    #       "end": "09:05", 
+    #       "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    #       "name": "아침방송"
+    #   },
     ]
     
-    # YouTube 동영상 URL 설정
-    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     # ===== 설정 끝 =====
     
     # 의존성 확인
@@ -85,7 +98,7 @@ def main():
             print("설정된 스케줄:")
             for i, schedule_time in enumerate(schedule_times, 1):
                 print(f"  {i}. {schedule_time['name']}: {schedule_time['start']} ~ {schedule_time['end']}")
-            print(f"- 동영상 URL: {video_url}")
+            print(f"- 동영상 URL: {schedule_time['url']}")
             print(f"- 현재 시간: {datetime.now().strftime('%H:%M:%S')}")
             
             confirm = input("\n스케줄을 시작하시겠습니까? (y/n): ").lower()
@@ -97,7 +110,7 @@ def main():
                     scheduler.add_schedule(
                         start_time=schedule_time['start'],
                         end_time=schedule_time['end'],
-                        video_url=video_url,
+                        video_url=schedule_time['url'],
                         schedule_name=schedule_time['name']
                     )
                 

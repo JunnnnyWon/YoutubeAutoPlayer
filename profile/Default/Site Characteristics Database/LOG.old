@@ -1,3 +1,5 @@
-2025/08/20-21:22:18.139 485be Reusing MANIFEST /Users/junnnny/Desktop/Codes/profile/Default/Site Characteristics Database/MANIFEST-000001
-2025/08/20-21:22:18.140 485be Recovering log #3
-2025/08/20-21:22:18.140 485be Reusing old log /Users/junnnny/Desktop/Codes/profile/Default/Site Characteristics Database/000003.log 
+2025/08/23-19:42:58.204 2914 Log #3: 10 ops saved to Table #4 OK
+2025/08/23-19:42:58.223 2914 Archiving s:\Github\repo\YoutubeAutoPlayer\profile\Default\Site Characteristics Database/000003.log: OK
+2025/08/23-19:42:58.223 2914 Table #4: 10 entries OK
+2025/08/23-19:42:58.227 2914 Archiving s:\Github\repo\YoutubeAutoPlayer\profile\Default\Site Characteristics Database/MANIFEST-000001: OK
+2025/08/23-19:42:58.232 2914 **** Repaired leveldb s:\Github\repo\YoutubeAutoPlayer\profile\Default\Site Characteristics Database; recovered 1 files; 381 bytes. Some data may have been lost. ****
