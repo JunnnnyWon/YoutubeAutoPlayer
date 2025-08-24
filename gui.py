@@ -589,18 +589,6 @@ class SchoolMusicTimerGUI(QMainWindow):
         """)
         layout.addWidget(self.fullscreen_check)
         
-        # 주말 실행 옵션 추가
-        self.weekend_enable_check = QCheckBox("주말에도 스케줄 실행")
-        self.weekend_enable_check.setChecked(False)
-        self.weekend_enable_check.setStyleSheet("""
-            QCheckBox {
-                font-size: 14px;
-                color: #495057;
-                spacing: 8px;
-            }
-        """)
-        layout.addWidget(self.weekend_enable_check)
-        
         # 로그 영역
         log_label = QLabel("📋 실행 로그")
         log_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #495057; margin-top: 20px;")
@@ -706,15 +694,9 @@ class SchoolMusicTimerGUI(QMainWindow):
         days_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
         today_kr = days_kr[now.weekday()]
         
-        weekend_enabled = self.weekend_enable_check.isChecked()
-        
-        # 오늘 스케줄 확인
+        # 오늘 스케줄 확인 (활성화 체크만 확인)
         today_schedule = schedule_data.get(today_kr, {})
         is_today_enabled = today_schedule.get('enabled', False)
-        
-        # 주말인 경우 주말 설정 확인
-        if today_kr in ["토요일", "일요일"]:
-            is_today_enabled = is_today_enabled and weekend_enabled
         
         if is_today_enabled:
             start_time = today_schedule['start_time']
@@ -725,10 +707,10 @@ class SchoolMusicTimerGUI(QMainWindow):
                 next_time = f"다음 방송: 오늘({today_kr}) {start_time}"
             else:
                 # 오늘 방송이 지났으면 다음 방송일 찾기
-                next_time = self.find_next_broadcast_day(now, schedule_data, weekend_enabled)
+                next_time = self.find_next_broadcast_day(now, schedule_data)
         else:
             # 오늘 방송이 없으면 다음 방송일 찾기
-            next_time = self.find_next_broadcast_day(now, schedule_data, weekend_enabled)
+            next_time = self.find_next_broadcast_day(now, schedule_data)
         
         if self.playlist_manager.get_selected_url():
             current_item = self.playlist_manager.playlist_widget.currentItem()
@@ -738,8 +720,8 @@ class SchoolMusicTimerGUI(QMainWindow):
         
         self.next_broadcast_label.setText(next_time)
     
-    def find_next_broadcast_day(self, current_time, schedule_data, weekend_enabled):
-        """다음 방송 예정일을 찾는 함수"""
+    def find_next_broadcast_day(self, current_time, schedule_data):
+        """다음 방송 예정일을 찾는 함수 (활성화 체크만 확인)"""
         days_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
         
         for i in range(1, 8):  # 내일부터 일주일 후까지
@@ -747,11 +729,8 @@ class SchoolMusicTimerGUI(QMainWindow):
             check_day = days_kr[check_date.weekday()]
             check_schedule = schedule_data.get(check_day, {})
             
+            # 활성화 체크만 확인
             is_enabled = check_schedule.get('enabled', False)
-            
-            # 주말인 경우 주말 설정 확인
-            if check_day in ["토요일", "일요일"]:
-                is_enabled = is_enabled and weekend_enabled
             
             if is_enabled:
                 start_time = check_schedule['start_time']
@@ -789,32 +768,19 @@ class SchoolMusicTimerGUI(QMainWindow):
         schedule_data = self.schedule_table.get_schedule_data()
         selected_url = self.playlist_manager.get_selected_url()
         
-        # 활성화된 스케줄만 필터링
+        # 활성화된 스케줄만 필터링 (활성화 체크만 확인)
         active_schedules = []
-        weekend_enabled = self.weekend_enable_check.isChecked()
-        
-        self.log_message(f"🔧 주말 실행 설정: {'활성화' if weekend_enabled else '비활성화'}")
         
         for day, data in schedule_data.items():
             self.log_message(f"📋 {day} 스케줄 확인: 활성화={data['enabled']}, 시간={data['start_time']}~{data['end_time']}")
             
             if data['enabled']:
-                # 주말 실행 옵션 확인
-                if day in ["토요일", "일요일"]:
-                    if not weekend_enabled:
-                        self.log_message(f"⏭️ {day} 스케줄 스킵됨 (주말 실행 비활성화)")
-                        continue
-                    else:
-                        self.log_message(f"🏖️ {day} 주말 스케줄 추가됨 (주말 실행 활성화)")
-                
                 active_schedules.append((day, data))
                 self.log_message(f"✅ {day} 스케줄 활성 목록에 추가: {data['start_time']} ~ {data['end_time']}")
+            else:
+                self.log_message(f"⏭️ {day} 스케줄 스킵됨 (비활성화)")
         
         self.log_message(f"📊 총 활성화된 스케줄 수: {len(active_schedules)}")
-        
-        if not active_schedules:
-            QMessageBox.warning(self, "경고", "활성화된 스케줄이 없습니다.")
-            return
         
         if not active_schedules:
             QMessageBox.warning(self, "경고", "활성화된 스케줄이 없습니다.")
@@ -855,12 +821,6 @@ class SchoolMusicTimerGUI(QMainWindow):
             self.status_label.setText("스케줄러 실행 중")
             
             self.log_message(f"🚀 스케줄러 시작완료! ({success_count}개 스케줄 등록)")
-            
-            # 주말 설정 상태 로깅
-            if weekend_enabled:
-                self.log_message("📅 주말 스케줄도 활성화됨")
-            else:
-                self.log_message("📅 주말 스케줄 비활성화됨")
                 
             self.statusBar().showMessage(f"스케줄러 실행 중... ({success_count}개 활성)")
             
@@ -983,11 +943,10 @@ class SchoolMusicTimerGUI(QMainWindow):
             item = self.playlist_manager.playlist_widget.item(i)
             config['PLAYLISTS'][f'playlist_{i}'] = item.data(Qt.ItemDataRole.UserRole)
         
-        # 설정 저장 (주말 옵션 추가)
+        # 설정 저장
         config['SETTINGS'] = {
             'disable_today': str(self.disable_today_check.isChecked()),
             'fullscreen': str(self.fullscreen_check.isChecked()),
-            'weekend_enable': str(self.weekend_enable_check.isChecked()),
             'selected_playlist': str(self.playlist_manager.playlist_widget.currentRow())
         }
         
@@ -1008,12 +967,11 @@ class SchoolMusicTimerGUI(QMainWindow):
         try:
             config.read('config.ini', encoding='utf-8')
             
-            # 설정 로드 (주말 옵션 추가)
+            # 설정 로드
             if 'SETTINGS' in config:
                 settings = config['SETTINGS']
                 self.disable_today_check.setChecked(settings.getboolean('disable_today', False))
                 self.fullscreen_check.setChecked(settings.getboolean('fullscreen', True))
-                self.weekend_enable_check.setChecked(settings.getboolean('weekend_enable', False))
             
             # 스케줄 데이터 로드
             if 'SCHEDULE' in config:

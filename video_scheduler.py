@@ -99,25 +99,38 @@ class VideoScheduler:
                 scheduler_obj = day_mapping[day]
                 
                 try:
+                    print(f"  🔧 스케줄 등록 시작...")
+                    print(f"      시작 함수: {self._start_video}")
+                    print(f"      종료 함수: {self._stop_video}")
+                    
                     # 시작 시간 스케줄링
-                    job1 = scheduler_obj.at(start_time).do(
+                    start_job = scheduler_obj.at(start_time).do(
                         self._start_video, video_url, name
                     )
+                    start_job.tag = f"{name}_START"  # 태그 추가
+                    print(f"      등록 직후 시작 작업 함수: {start_job.job_func}")
                     
                     # 종료 시간 스케줄링  
-                    job2 = scheduler_obj.at(end_time).do(
+                    end_job = scheduler_obj.at(end_time).do(
                         self._stop_video, name
                     )
+                    end_job.tag = f"{name}_END"  # 태그 추가
+                    print(f"      등록 직후 종료 작업 함수: {end_job.job_func}")
                     
-                    self.current_jobs.extend([job1, job2])
+                    self.current_jobs.extend([start_job, end_job])
                     print(f"  ✅ {name}: {day} {start_time}에 시작, {end_time}에 종료")
+                    
+                    # 작업 검증
+                    print(f"    📋 시작 작업: {start_job.job_func.__name__} at {start_time}")
+                    print(f"    📋 종료 작업: {end_job.job_func.__name__} at {end_time}")
                     
                     # 주말인 경우 추가 로그 및 검증
                     if day in ["토요일", "일요일"]:
-                        print(f"  � 주말 스케줄 등록 완료: {day}")
-                        print(f"    - 시작 작업: {job1}")
-                        print(f"    - 종료 작업: {job2}")
-                        print(f"    - 다음 실행: {job1.next_run}")
+                        print(f"  🏖️ 주말 스케줄 등록 완료: {day}")
+                        print(f"    - 시작 작업: {start_job} (함수: {start_job.job_func.__name__})")
+                        print(f"    - 종료 작업: {end_job} (함수: {end_job.job_func.__name__})")
+                        print(f"    - 시작 다음 실행: {start_job.next_run}")
+                        print(f"    - 종료 다음 실행: {end_job.next_run}")
                         
                 except Exception as e:
                     print(f"❌ {day} 스케줄 등록 실패: {e}")
@@ -142,6 +155,9 @@ class VideoScheduler:
         print("📋 등록된 작업 목록:")
         for i, job in enumerate(schedule.get_jobs()):
             job_day = "Unknown"
+            job_func_name = job.job_func.__name__ if hasattr(job, 'job_func') else "Unknown"
+            job_tag = getattr(job, 'tag', 'No tag')
+            
             if hasattr(job, 'start_day'):
                 job_day = job.start_day
             elif 'monday' in str(job):
@@ -159,7 +175,14 @@ class VideoScheduler:
             elif 'sunday' in str(job):
                 job_day = "일요일"
             
-            print(f"  {i+1}. {job} (요일: {job_day})")
+            print(f"  {i+1}. {job} (요일: {job_day}, 함수: {job_func_name}, 태그: {job_tag})")
+            print(f"      다음 실행: {job.next_run}")
+            
+            # 시작 작업과 종료 작업 구분
+            if job_func_name == "_start_video":
+                print(f"      🎵 START 작업")
+            elif job_func_name == "_stop_video":
+                print(f"      🔇 END 작업")
             
         # 주말 스케줄이 있는 경우 특별 알림
         if weekend_schedule_count > 0:
@@ -174,7 +197,8 @@ class VideoScheduler:
             current_day_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][datetime.now().weekday()]
             weekday_num = datetime.now().weekday()  # 0=월요일, 6=일요일
             
-            print(f"\n🎵 [{current_time}] {schedule_name} 시작! (오늘: {current_day_kr}, weekday: {weekday_num})")
+            print(f"\n🚨🚨🚨 _START_VIDEO 함수 호출됨! 🚨🚨🚨")
+            print(f"🎵 [{current_time}] {schedule_name} 시작! (오늘: {current_day_kr}, weekday: {weekday_num})")
             print(f"📺 동영상 URL: {video_url}")
             
             # 주말인지 확인하고 로그 출력
@@ -188,6 +212,7 @@ class VideoScheduler:
                 self.driver = None
             
             # 새 브라우저 시작
+            print("🚀 브라우저 시작 중...")
             self.driver = play_youtube_video(video_url)
             
             if self.driver:
@@ -207,6 +232,8 @@ class VideoScheduler:
         try:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             current_day_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][datetime.now().weekday()]
+            
+            print(f"\n🚨🚨🚨 _STOP_VIDEO 함수 호출됨! 🚨🚨🚨")
             
             if self.driver:
                 print(f"\n🔇 [{current_time}] {schedule_name} 종료 (오늘: {current_day_kr})")
@@ -263,7 +290,15 @@ class VideoScheduler:
                         else:
                             print("⚠️ 등록된 작업이 없습니다!")
                 
-                # 스케줄 실행
+                # 스케줄 실행 (실행 전 로그 추가)
+                pending_jobs = [job for job in schedule.get_jobs() if job.should_run]
+                if pending_jobs:
+                    print(f"\n🎯 [{now.strftime('%H:%M:%S')}] 실행 예정 작업 {len(pending_jobs)}개:")
+                    for job in pending_jobs:
+                        func_name = job.job_func.__name__ if hasattr(job, 'job_func') else "Unknown"
+                        tag = getattr(job, 'tag', 'No tag')
+                        print(f"   - {func_name} ({tag}) - 예정시간: {job.next_run}")
+                        
                 schedule.run_pending()
                 time.sleep(1)
                 
