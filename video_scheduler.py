@@ -2,6 +2,7 @@ import time
 import schedule
 import threading
 from datetime import datetime, timedelta
+from functools import partial
 from playvideo import play_youtube_video
 
 class VideoScheduler:
@@ -11,6 +12,8 @@ class VideoScheduler:
         self.current_jobs = []
         self.schedules = []
         self.scheduler_thread = None
+        self.active_timers = []  # 직접 타이머 관리용
+        self.use_direct_timer = True  # 직접 타이머 사용 플래그
         
     def add_schedule(self, start_time, end_time, video_url, schedule_name="방송"):
         """
@@ -18,6 +21,19 @@ class VideoScheduler:
         """
         return self.add_daily_schedule("매일", start_time, end_time, video_url, schedule_name)
     
+    def _create_start_function(self, video_url, schedule_name):
+        """시작 함수를 동적으로 생성"""
+        def start_func():
+            return self._start_video(video_url, schedule_name)
+        start_func.__name__ = f"START_{schedule_name}"
+        return start_func
+    
+    def _create_end_function(self, schedule_name):
+        """종료 함수를 동적으로 생성"""
+        def end_func():
+            return self._stop_video(schedule_name)
+        end_func.__name__ = f"END_{schedule_name}"
+        return end_func
     def add_daily_schedule(self, day, start_time, end_time, video_url, schedule_name="방송"):
         """
         요일별 스케줄을 추가하는 함수
@@ -51,7 +67,157 @@ class VideoScheduler:
         return True
 
     def start_scheduler(self):
-        """모든 등록된 스케줄을 활성화하는 함수"""
+        """모든 등록된 스케줄을 활성화하는 함수 (직접 타이머 방식)"""
+        if not self.schedules:
+            print("❌ 등록된 스케줄이 없습니다.")
+            return
+            
+        print(f"\n📅 총 {len(self.schedules)}개의 스케줄을 등록합니다:")
+        
+        if self.use_direct_timer:
+            return self._start_direct_timer_scheduler()
+        else:
+            return self._start_schedule_library_scheduler()
+    
+    def _start_direct_timer_scheduler(self):
+        """직접 타이머를 사용한 스케줄러"""
+        print("🔧 직접 타이머 방식 사용")
+        
+        # 기존 타이머 정리
+        self._clear_timers()
+        
+        now = datetime.now()
+        current_weekday = now.weekday()  # 0=월요일, 6=일요일
+        
+        # 요일 매핑
+        weekday_map = {
+            "월요일": 0, "화요일": 1, "수요일": 2, "목요일": 3, 
+            "금요일": 4, "토요일": 5, "일요일": 6
+        }
+        
+        timer_count = 0
+        
+        for schedule_info in self.schedules:
+            day = schedule_info.get('day', '매일')
+            start_time = schedule_info['start_time']
+            end_time = schedule_info['end_time']
+            video_url = schedule_info['video_url']
+            name = schedule_info['name']
+            
+            print(f"🔄 스케줄 처리 중: {name} ({day} {start_time} ~ {end_time})")
+            
+            # 다음 실행 시간 계산
+            target_times = self._calculate_next_execution_times(day, start_time, end_time, weekday_map, now)
+            
+            for target_time, action in target_times:
+                if target_time > now:
+                    delay = (target_time - now).total_seconds()
+                    
+                    if action == "start":
+                        timer = threading.Timer(delay, self._start_video, args=(video_url, name))
+                        print(f"  ⏰ 시작 타이머: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({delay:.1f}초 후)")
+                    else:  # action == "end"
+                        timer = threading.Timer(delay, self._stop_video, args=(name,))
+                        print(f"  ⏰ 종료 타이머: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({delay:.1f}초 후)")
+                    
+                    timer.start()
+                    self.active_timers.append(timer)
+                    timer_count += 1
+        
+        if timer_count == 0:
+            print("❌ 설정된 시간에 실행할 스케줄이 없습니다.")
+            return
+        
+        self.is_running = True
+        print(f"\n✅ 직접 타이머 스케줄러가 활성화되었습니다. {timer_count}개 타이머 등록됨")
+        
+        # 모니터링 스레드 시작
+        self.scheduler_thread = threading.Thread(target=self._monitor_timers, daemon=True)
+        self.scheduler_thread.start()
+    
+    def _calculate_next_execution_times(self, day, start_time, end_time, weekday_map, now):
+        """다음 실행 시간들을 계산"""
+        target_times = []
+        
+        try:
+            start_hour, start_minute = map(int, start_time.split(':'))
+            end_hour, end_minute = map(int, end_time.split(':'))
+        except ValueError:
+            print(f"❌ 잘못된 시간 형식: {start_time} ~ {end_time}")
+            return target_times
+        
+        if day == "매일":
+            # 매일 실행
+            start_today = now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+            end_today = now.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+            
+            if start_today > now:
+                target_times.append((start_today, "start"))
+                target_times.append((end_today, "end"))
+            else:
+                # 내일 실행
+                start_tomorrow = start_today + timedelta(days=1)
+                end_tomorrow = end_today + timedelta(days=1)
+                target_times.append((start_tomorrow, "start"))
+                target_times.append((end_tomorrow, "end"))
+                
+        elif day in weekday_map:
+            # 특정 요일 실행
+            target_weekday = weekday_map[day]
+            
+            # 이번 주 해당 요일
+            days_until_target = (target_weekday - now.weekday()) % 7
+            if days_until_target == 0:  # 오늘이 해당 요일
+                target_date = now.date()
+                start_target = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=start_hour, minutes=start_minute)
+                
+                if start_target > now:
+                    # 오늘 아직 시간이 남음
+                    end_target = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=end_hour, minutes=end_minute)
+                    target_times.append((start_target, "start"))
+                    target_times.append((end_target, "end"))
+                else:
+                    # 다음 주 해당 요일
+                    days_until_target = 7
+            
+            if not target_times:  # 오늘이 아니거나 시간이 지남
+                target_date = now.date() + timedelta(days=days_until_target)
+                start_target = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=start_hour, minutes=start_minute)
+                end_target = datetime.combine(target_date, datetime.min.time()) + timedelta(hours=end_hour, minutes=end_minute)
+                target_times.append((start_target, "start"))
+                target_times.append((end_target, "end"))
+        
+        return target_times
+    
+    def _monitor_timers(self):
+        """타이머 모니터링"""
+        print("⏰ 타이머 모니터링 시작...")
+        
+        while self.is_running:
+            try:
+                # 활성 타이머 수 확인
+                active_count = sum(1 for timer in self.active_timers if timer.is_alive())
+                
+                if active_count == 0 and self.active_timers:
+                    print("📋 모든 타이머가 완료되었습니다.")
+                
+                time.sleep(60)  # 1분마다 체크
+                
+            except Exception as e:
+                print(f"❌ 타이머 모니터링 중 오류: {e}")
+                time.sleep(5)
+        
+        print("🛑 타이머 모니터링 종료")
+    
+    def _clear_timers(self):
+        """모든 활성 타이머 정리"""
+        for timer in self.active_timers:
+            if timer.is_alive():
+                timer.cancel()
+        self.active_timers.clear()
+    
+    def _start_schedule_library_scheduler(self):
+        """기존 schedule 라이브러리 방식 (백업용)"""
         if not self.schedules:
             print("❌ 등록된 스케줄이 없습니다.")
             return
@@ -67,7 +233,8 @@ class VideoScheduler:
             "금요일": schedule.every().friday,
             "토요일": schedule.every().saturday,  # 토요일 명시적 추가
             "일요일": schedule.every().sunday,    # 일요일 명시적 추가
-            "매일": schedule.every().day
+            "매일": schedule.every().day,
+            "오늘": schedule.every().day  # 오늘 즉시 실행용 추가
         }
         
         # 기존 스케줄 클리어
@@ -100,35 +267,30 @@ class VideoScheduler:
                 
                 try:
                     print(f"  🔧 스케줄 등록 시작...")
-                    print(f"      시작 함수: {self._start_video}")
-                    print(f"      종료 함수: {self._stop_video}")
                     
+                    # 각 작업을 별도로 등록 (변수 참조 문제 해결)
                     # 시작 시간 스케줄링
                     start_job = scheduler_obj.at(start_time).do(
                         self._start_video, video_url, name
                     )
-                    start_job.tag = f"{name}_START"  # 태그 추가
-                    print(f"      등록 직후 시작 작업 함수: {start_job.job_func}")
+                    start_job.tag = f"{name}_START"
                     
-                    # 종료 시간 스케줄링  
+                    print(f"      시작 작업 등록됨: {start_job}")
+                    
+                    # 종료 시간 스케줄링을 완전히 분리된 방식으로  
                     end_job = scheduler_obj.at(end_time).do(
                         self._stop_video, name
                     )
-                    end_job.tag = f"{name}_END"  # 태그 추가
-                    print(f"      등록 직후 종료 작업 함수: {end_job.job_func}")
+                    end_job.tag = f"{name}_END"
+                    
+                    print(f"      종료 작업 등록됨: {end_job}")
                     
                     self.current_jobs.extend([start_job, end_job])
                     print(f"  ✅ {name}: {day} {start_time}에 시작, {end_time}에 종료")
                     
-                    # 작업 검증
-                    print(f"    📋 시작 작업: {start_job.job_func.__name__} at {start_time}")
-                    print(f"    📋 종료 작업: {end_job.job_func.__name__} at {end_time}")
-                    
                     # 주말인 경우 추가 로그 및 검증
                     if day in ["토요일", "일요일"]:
                         print(f"  🏖️ 주말 스케줄 등록 완료: {day}")
-                        print(f"    - 시작 작업: {start_job} (함수: {start_job.job_func.__name__})")
-                        print(f"    - 종료 작업: {end_job} (함수: {end_job.job_func.__name__})")
                         print(f"    - 시작 다음 실행: {start_job.next_run}")
                         print(f"    - 종료 다음 실행: {end_job.next_run}")
                         
@@ -155,7 +317,6 @@ class VideoScheduler:
         print("📋 등록된 작업 목록:")
         for i, job in enumerate(schedule.get_jobs()):
             job_day = "Unknown"
-            job_func_name = job.job_func.__name__ if hasattr(job, 'job_func') else "Unknown"
             job_tag = getattr(job, 'tag', 'No tag')
             
             if hasattr(job, 'start_day'):
@@ -175,13 +336,13 @@ class VideoScheduler:
             elif 'sunday' in str(job):
                 job_day = "일요일"
             
-            print(f"  {i+1}. {job} (요일: {job_day}, 함수: {job_func_name}, 태그: {job_tag})")
+            print(f"  {i+1}. {job} (요일: {job_day}, 태그: {job_tag})")
             print(f"      다음 실행: {job.next_run}")
             
             # 시작 작업과 종료 작업 구분
-            if job_func_name == "_start_video":
+            if "START" in job_tag:
                 print(f"      🎵 START 작업")
-            elif job_func_name == "_stop_video":
+            elif "END" in job_tag:
                 print(f"      🔇 END 작업")
             
         # 주말 스케줄이 있는 경우 특별 알림
@@ -314,6 +475,11 @@ class VideoScheduler:
         """스케줄러 중지"""
         print("\n🛑 스케줄러를 중지합니다...")
         self.is_running = False
+        
+        # 직접 타이머 정리
+        self._clear_timers()
+        
+        # 기존 schedule 라이브러리 정리
         schedule.clear()
         
         if self.driver:
@@ -327,9 +493,14 @@ class VideoScheduler:
         """비상 정지"""
         print("\n🚨 비상 정지!")
         self.is_running = False
+        
+        # 모든 타이머 즉시 취소
+        self._clear_timers()
+        
         if self.driver:
             self.driver.quit()
             self.driver = None
+            
         schedule.clear()
         self.current_jobs.clear()
         print("✅ 모든 작업이 긴급 중단되었습니다.")

@@ -28,13 +28,13 @@ def test_scheduler_now():
     # 스케줄러 생성
     scheduler = VideoScheduler()
     
-    # 오늘 요일로 스케줄 추가
+    # 오늘 즉시 실행으로 스케줄 추가 ("오늘" 사용)
     success = scheduler.add_daily_schedule(
-        day=current_day,
+        day="오늘",  # "일요일" 대신 "오늘" 사용
         start_time=start_time,
         end_time=end_time,
         video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        schedule_name=f"즉시 테스트 ({current_day})"
+        schedule_name=f"즉시 테스트 (오늘)"
     )
     
     if not success:
