@@ -3,7 +3,8 @@ import schedule
 import threading
 from datetime import datetime, timedelta
 from functools import partial
-from playvideo import play_youtube_video
+from play_video import play_youtube_video
+from media_controller import get_media_controller, MediaType
 
 class VideoScheduler:
     def __init__(self):
@@ -19,24 +20,19 @@ class VideoScheduler:
         """
         스케줄을 추가하는 함수 (기존 호환성 유지)
         """
-        return self.add_daily_schedule("매일", start_time, end_time, video_url, schedule_name)
+        return self.add_daily_schedule("매일", start_time, end_time, video_url, schedule_name, "youtube")
     
-    def _create_start_function(self, video_url, schedule_name):
-        """시작 함수를 동적으로 생성"""
-        def start_func():
-            return self._start_video(video_url, schedule_name)
-        start_func.__name__ = f"START_{schedule_name}"
-        return start_func
-    
-    def _create_end_function(self, schedule_name):
-        """종료 함수를 동적으로 생성"""
-        def end_func():
-            return self._stop_video(schedule_name)
-        end_func.__name__ = f"END_{schedule_name}"
-        return end_func
-    def add_daily_schedule(self, day, start_time, end_time, video_url, schedule_name="방송"):
+    def add_daily_schedule(self, day, start_time, end_time, source, schedule_name="방송", media_type="youtube"):
         """
-        요일별 스케줄을 추가하는 함수
+        요일별 스케줄을 추가하는 함수 (YouTube와 로컬 음원 지원)
+        
+        Args:
+            day: 요일 ("월요일", "화요일", ... 또는 "매일")
+            start_time: 시작 시간 ("HH:MM")
+            end_time: 종료 시간 ("HH:MM")
+            source: YouTube URL 또는 로컬 파일 경로
+            schedule_name: 스케줄 이름
+            media_type: "youtube" 또는 "local_audio"
         """
         # 시간 형식 검증
         try:
@@ -54,16 +50,22 @@ class VideoScheduler:
             print(f"❌ 종료 시간이 시작 시간보다 늦어야 합니다: {start_time} ~ {end_time}")
             return False
 
+        # 미디어 타입 검증
+        if media_type not in ["youtube", "local_audio"]:
+            print(f"❌ 지원하지 않는 미디어 타입: {media_type}")
+            return False
+
         schedule_info = {
             'day': day,
             'start_time': start_time,
             'end_time': end_time,
-            'video_url': video_url,
-            'name': schedule_name
+            'source': source,
+            'name': schedule_name,
+            'media_type': media_type
         }
         
         self.schedules.append(schedule_info)
-        print(f"✅ 스케줄 추가됨: {schedule_name} ({day} {start_time} ~ {end_time})")
+        print(f"✅ 스케줄 추가됨: {schedule_name} ({day} {start_time} ~ {end_time}) - {media_type}")
         return True
 
     def start_scheduler(self):
@@ -101,10 +103,11 @@ class VideoScheduler:
             day = schedule_info.get('day', '매일')
             start_time = schedule_info['start_time']
             end_time = schedule_info['end_time']
-            video_url = schedule_info['video_url']
+            source = schedule_info['source']
             name = schedule_info['name']
+            media_type = schedule_info.get('media_type', 'youtube')
             
-            print(f"🔄 스케줄 처리 중: {name} ({day} {start_time} ~ {end_time})")
+            print(f"🔄 스케줄 처리 중: {name} ({day} {start_time} ~ {end_time}) - {media_type}")
             
             # 다음 실행 시간 계산
             target_times = self._calculate_next_execution_times(day, start_time, end_time, weekday_map, now)
@@ -114,10 +117,10 @@ class VideoScheduler:
                     delay = (target_time - now).total_seconds()
                     
                     if action == "start":
-                        timer = threading.Timer(delay, self._start_video, args=(video_url, name))
-                        print(f"  ⏰ 시작 타이머: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({delay:.1f}초 후)")
+                        timer = threading.Timer(delay, self._start_media, args=(source, name, media_type))
+                        print(f"  ⏰ 시작 타이머: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({delay:.1f}초 후) - {media_type}")
                     else:  # action == "end"
-                        timer = threading.Timer(delay, self._stop_video, args=(name,))
+                        timer = threading.Timer(delay, self._stop_media, args=(name,))
                         print(f"  ⏰ 종료 타이머: {target_time.strftime('%Y-%m-%d %H:%M:%S')} ({delay:.1f}초 후)")
                     
                     timer.start()
@@ -216,168 +219,44 @@ class VideoScheduler:
                 timer.cancel()
         self.active_timers.clear()
     
-    def _start_schedule_library_scheduler(self):
-        """기존 schedule 라이브러리 방식 (백업용)"""
-        if not self.schedules:
-            print("❌ 등록된 스케줄이 없습니다.")
-            return
-            
-        print(f"\n📅 총 {len(self.schedules)}개의 스케줄을 등록합니다:")
-        
-        # 요일 매핑 - 주말 포함 (명시적)
-        day_mapping = {
-            "월요일": schedule.every().monday,
-            "화요일": schedule.every().tuesday,
-            "수요일": schedule.every().wednesday,
-            "목요일": schedule.every().thursday,
-            "금요일": schedule.every().friday,
-            "토요일": schedule.every().saturday,  # 토요일 명시적 추가
-            "일요일": schedule.every().sunday,    # 일요일 명시적 추가
-            "매일": schedule.every().day,
-            "오늘": schedule.every().day  # 오늘 즉시 실행용 추가
-        }
-        
-        # 기존 스케줄 클리어
-        schedule.clear()
-        self.current_jobs.clear()
-        
-        # 주말 스케줄 카운터
-        weekend_schedule_count = 0
-        weekday_schedule_count = 0
-        
-        for schedule_info in self.schedules:
-            day = schedule_info.get('day', '매일')
-            start_time = schedule_info['start_time']
-            end_time = schedule_info['end_time']
-            video_url = schedule_info['video_url']
-            name = schedule_info['name']
-            
-            print(f"🔄 스케줄 등록 중: {name} ({day} {start_time} ~ {end_time})")
-            
-            # 주말 카운트
-            if day in ["토요일", "일요일"]:
-                weekend_schedule_count += 1
-                print(f"  🏖️ 주말 스케줄 감지: {day}")
-            else:
-                weekday_schedule_count += 1
-            
-            # 요일별 스케줄링
-            if day in day_mapping:
-                scheduler_obj = day_mapping[day]
-                
-                try:
-                    print(f"  🔧 스케줄 등록 시작...")
-                    
-                    # 각 작업을 별도로 등록 (변수 참조 문제 해결)
-                    # 시작 시간 스케줄링
-                    start_job = scheduler_obj.at(start_time).do(
-                        self._start_video, video_url, name
-                    )
-                    start_job.tag = f"{name}_START"
-                    
-                    print(f"      시작 작업 등록됨: {start_job}")
-                    
-                    # 종료 시간 스케줄링을 완전히 분리된 방식으로  
-                    end_job = scheduler_obj.at(end_time).do(
-                        self._stop_video, name
-                    )
-                    end_job.tag = f"{name}_END"
-                    
-                    print(f"      종료 작업 등록됨: {end_job}")
-                    
-                    self.current_jobs.extend([start_job, end_job])
-                    print(f"  ✅ {name}: {day} {start_time}에 시작, {end_time}에 종료")
-                    
-                    # 주말인 경우 추가 로그 및 검증
-                    if day in ["토요일", "일요일"]:
-                        print(f"  🏖️ 주말 스케줄 등록 완료: {day}")
-                        print(f"    - 시작 다음 실행: {start_job.next_run}")
-                        print(f"    - 종료 다음 실행: {end_job.next_run}")
-                        
-                except Exception as e:
-                    print(f"❌ {day} 스케줄 등록 실패: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    
-            else:
-                print(f"❌ 지원하지 않는 요일: {day}")
-        
-        self.is_running = True
-        
-        # 스케줄러 실행 (별도 스레드에서)
-        self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
-        self.scheduler_thread.start()
-        
-        print(f"\n✅ 스케줄러가 활성화되었습니다. {len(self.current_jobs)}개 작업이 등록됨")
-        print(f"📊 스케줄 통계:")
-        print(f"  - 평일 스케줄: {weekday_schedule_count}개")
-        print(f"  - 주말 스케줄: {weekend_schedule_count}개")
-        print(f"  - 총 작업: {len(self.current_jobs)}개")
-        
-        print("📋 등록된 작업 목록:")
-        for i, job in enumerate(schedule.get_jobs()):
-            job_day = "Unknown"
-            job_tag = getattr(job, 'tag', 'No tag')
-            
-            if hasattr(job, 'start_day'):
-                job_day = job.start_day
-            elif 'monday' in str(job):
-                job_day = "월요일"
-            elif 'tuesday' in str(job):
-                job_day = "화요일"
-            elif 'wednesday' in str(job):
-                job_day = "수요일"
-            elif 'thursday' in str(job):
-                job_day = "목요일"
-            elif 'friday' in str(job):
-                job_day = "금요일"
-            elif 'saturday' in str(job):
-                job_day = "토요일"
-            elif 'sunday' in str(job):
-                job_day = "일요일"
-            
-            print(f"  {i+1}. {job} (요일: {job_day}, 태그: {job_tag})")
-            print(f"      다음 실행: {job.next_run}")
-            
-            # 시작 작업과 종료 작업 구분
-            if "START" in job_tag:
-                print(f"      🎵 START 작업")
-            elif "END" in job_tag:
-                print(f"      🔇 END 작업")
-            
-        # 주말 스케줄이 있는 경우 특별 알림
-        if weekend_schedule_count > 0:
-            print(f"\n🏖️ 주말 스케줄 {weekend_schedule_count}개가 정상 등록되었습니다!")
-            print("  토요일과 일요일에도 자동 실행됩니다.")
-
-    def _start_video(self, video_url, schedule_name="방송"):
-        """비디오 재생 시작"""
+    def _start_media(self, source, schedule_name="방송", media_type="youtube"):
+        """미디어 재생 시작 (YouTube 또는 로컬 음원)"""
         try:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            current_day = datetime.now().strftime('%A')  # 요일 (영어)
             current_day_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][datetime.now().weekday()]
-            weekday_num = datetime.now().weekday()  # 0=월요일, 6=일요일
+            weekday_num = datetime.now().weekday()
             
-            print(f"\n🚨🚨🚨 _START_VIDEO 함수 호출됨! 🚨🚨🚨")
-            print(f"🎵 [{current_time}] {schedule_name} 시작! (오늘: {current_day_kr}, weekday: {weekday_num})")
-            print(f"📺 동영상 URL: {video_url}")
+            print(f"\n🚨🚨🚨 _START_MEDIA 함수 호출됨! 🚨🚨🚨")
+            print(f"🎵 [{current_time}] {schedule_name} 시작! (오늘: {current_day_kr}, 타입: {media_type})")
+            print(f"📁 소스: {source}")
             
             # 주말인지 확인하고 로그 출력
-            if weekday_num >= 5:  # 5=토요일, 6=일요일
+            if weekday_num >= 5:
                 print(f"🏖️ 주말 스케줄 실행 중: {current_day_kr}")
             
-            # 이미 실행 중인 브라우저가 있으면 종료
-            if self.driver:
-                print("⚠️ 기존 브라우저를 종료합니다.")
-                self.driver.quit()
-                self.driver = None
+            # 🛡️ 미디어 컨트롤러를 통한 안전한 재생
+            media_controller = get_media_controller()
+            status = media_controller.get_current_status()
+            print(f"🔍 현재 미디어 상태: {status}")
             
-            # 새 브라우저 시작
-            print("🚀 브라우저 시작 중...")
-            self.driver = play_youtube_video(video_url)
+            success = False
             
-            if self.driver:
-                print(f"✅ {schedule_name} 재생 시작 완료! (요일: {current_day_kr})")
+            if media_type == "youtube":
+                # YouTube 재생
+                success = media_controller.play_youtube(source)
+                if success:
+                    self.driver = media_controller.active_driver  # 레거시 호환성
+                    
+            elif media_type == "local_audio":
+                # 로컬 음원 재생
+                success = media_controller.play_local_audio(source)
+                
+            else:
+                print(f"❌ 지원하지 않는 미디어 타입: {media_type}")
+                return
+            
+            if success:
+                print(f"✅ {schedule_name} 재생 시작 완료! (요일: {current_day_kr}, 타입: {media_type})")
                 if weekday_num >= 5:
                     print(f"🎉 주말 스케줄 성공적으로 실행됨!")
             else:
@@ -388,91 +267,52 @@ class VideoScheduler:
             import traceback
             traceback.print_exc()
 
-    def _stop_video(self, schedule_name="방송"):
-        """비디오 재생 종료"""
+    def _stop_media(self, schedule_name="방송"):
+        """미디어 재생 종료 (YouTube 또는 로컬 음원)"""
         try:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             current_day_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][datetime.now().weekday()]
             
-            print(f"\n🚨🚨🚨 _STOP_VIDEO 함수 호출됨! 🚨🚨🚨")
+            print(f"\n🚨🚨🚨 _STOP_MEDIA 함수 호출됨! 🚨🚨🚨")
+            print(f"🔇 [{current_time}] {schedule_name} 종료 (오늘: {current_day_kr})")
             
-            if self.driver:
-                print(f"\n🔇 [{current_time}] {schedule_name} 종료 (오늘: {current_day_kr})")
-                self.driver.quit()
-                self.driver = None
+            # 🛡️ 미디어 컨트롤러를 통한 안전한 정지
+            media_controller = get_media_controller()
+            status = media_controller.get_current_status()
+            print(f"🔍 정지 전 미디어 상태: {status}")
+            
+            success = media_controller.safe_stop_current()
+            
+            if success:
+                self.driver = None  # 레거시 호환성
                 print(f"✅ {schedule_name} 종료 완료")
             else:
-                print(f"⚠️ [{current_time}] {schedule_name} 종료 요청이지만 실행 중인 브라우저가 없습니다.")
+                print(f"⚠️ {schedule_name} 종료 중 일부 문제 발생")
+                # 강제 정지 시도
+                if self.driver:
+                    try:
+                        self.driver.quit()
+                        self.driver = None
+                        print("🔧 레거시 방식으로 강제 종료 완료")
+                    except Exception as fallback_error:
+                        print(f"❌ 강제 종료도 실패: {fallback_error}")
                 
         except Exception as e:
             print(f"❌ {schedule_name} 종료 중 오류 발생: {e}")
             import traceback
             traceback.print_exc()
-    
-    def _run_scheduler(self):
-        """스케줄러 실행"""
-        print("⏰ 스케줄러 루프 시작...")
-        print("📋 스케줄러 디버깅 정보:")
-        
-        # 등록된 모든 작업 출력
-        jobs = schedule.get_jobs()
-        for i, job in enumerate(jobs):
-            print(f"  작업 {i+1}: {job}")
-            print(f"    다음 실행: {job.next_run}")
-            print(f"    함수: {job.job_func.__name__}")
-        
-        minute_counter = 0
-        
-        while self.is_running:
-            try:
-                now = datetime.now()
-                current_weekday = now.weekday()  # 0=월요일, 6=일요일
-                current_day_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][current_weekday]
-                
-                # 매 분마다 상태 출력 (디버깅용)
-                if now.second == 0:
-                    minute_counter += 1
-                    jobs = schedule.get_jobs()
-                    
-                    if minute_counter % 5 == 0:  # 5분마다 상세 정보 출력
-                        print(f"\n⏰ [{now.strftime('%Y-%m-%d %H:%M:%S')}] 스케줄러 상태 체크")
-                        print(f"📅 오늘: {current_day_kr} (weekday: {current_weekday})")
-                        print(f"📊 등록된 작업 수: {len(jobs)}")
-                        
-                        if current_weekday >= 5:  # 주말인 경우
-                            print(f"🏖️ 현재 주말입니다: {current_day_kr}")
-                            weekend_jobs = [job for job in jobs if '토요일' in str(job) or '일요일' in str(job)]
-                            print(f"🎯 주말 관련 작업 수: {len(weekend_jobs)}")
-                        
-                        if jobs:
-                            next_job = min(jobs, key=lambda job: job.next_run)
-                            print(f"⏳ 다음 실행 예정: {next_job.next_run.strftime('%Y-%m-%d %H:%M:%S')}")
-                            print(f"📋 다음 작업: {next_job}")
-                        else:
-                            print("⚠️ 등록된 작업이 없습니다!")
-                
-                # 스케줄 실행 (실행 전 로그 추가)
-                pending_jobs = [job for job in schedule.get_jobs() if job.should_run]
-                if pending_jobs:
-                    print(f"\n🎯 [{now.strftime('%H:%M:%S')}] 실행 예정 작업 {len(pending_jobs)}개:")
-                    for job in pending_jobs:
-                        func_name = job.job_func.__name__ if hasattr(job, 'job_func') else "Unknown"
-                        tag = getattr(job, 'tag', 'No tag')
-                        print(f"   - {func_name} ({tag}) - 예정시간: {job.next_run}")
-                        
-                schedule.run_pending()
-                time.sleep(1)
-                
-            except Exception as e:
-                print(f"❌ 스케줄러 실행 중 오류: {e}")
-                import traceback
-                traceback.print_exc()
-                time.sleep(5)  # 오류 발생 시 5초 대기
-        
-        print("🛑 스케줄러 루프 종료")
+
+    # 레거시 호환성을 위한 기존 함수들
+    def _start_video(self, video_url, schedule_name="방송"):
+        """비디오 재생 시작 (레거시 호환성 함수)"""
+        return self._start_media(video_url, schedule_name, "youtube")
+
+    def _stop_video(self, schedule_name="방송"):
+        """비디오 재생 종료 (레거시 호환성 함수)"""
+        return self._stop_media(schedule_name)
 
     def stop_scheduler(self):
-        """스케줄러 중지"""
+        """스케줄러 중지 - 미디어 컨트롤러 통합"""
         print("\n🛑 스케줄러를 중지합니다...")
         self.is_running = False
         
@@ -482,28 +322,139 @@ class VideoScheduler:
         # 기존 schedule 라이브러리 정리
         schedule.clear()
         
+        # 🛡️ 미디어 컨트롤러를 통한 안전한 정지
+        try:
+            media_controller = get_media_controller()
+            media_controller.safe_stop_current()
+        except Exception as e:
+            print(f"⚠️ 미디어 컨트롤러 정지 중 오류: {e}")
+        
+        # 레거시 호환성
         if self.driver:
-            self.driver.quit()
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
             self.driver = None
             
         self.current_jobs.clear()
         print("✅ 스케줄러가 중지되었습니다.")
     
     def emergency_stop(self):
-        """비상 정지"""
+        """비상 정지 - 모든 미디어 강제 정지"""
         print("\n🚨 비상 정지!")
-        self.is_running = False
         
-        # 모든 타이머 즉시 취소
+        # 🛡️ 미디어 컨트롤러를 통한 강제 정지
+        try:
+            from media_controller import emergency_stop_all_media
+            emergency_stop_all_media()
+            print("🛡️ 미디어 컨트롤러를 통한 강제 정지 완료")
+        except Exception as e:
+            print(f"⚠️ 미디어 컨트롤러 강제 정지 실패: {e}")
+        
+        # 기존 로직 유지 (이중 안전장치)
+        self.is_running = False
         self._clear_timers()
+        schedule.clear()
         
         if self.driver:
-            self.driver.quit()
-            self.driver = None
-            
-        schedule.clear()
+            try:
+                self.driver.quit()
+                print("🔧 레거시 드라이버 강제 종료 완료")
+            except Exception as e:
+                print(f"⚠️ 레거시 드라이버 종료 실패: {e}")
+            finally:
+                self.driver = None
+                
         self.current_jobs.clear()
-        print("✅ 모든 작업이 긴급 중단되었습니다.")
+        print("✅ 비상 정지 완료")
+
+    def get_next_execution_time(self):
+        """다음 실행 시간 반환 (GUI용)"""
+        if not self.schedules or not self.is_running:
+            return None
+            
+        now = datetime.now()
+        next_times = []
+        
+        weekday_map = {
+            "월요일": 0, "화요일": 1, "수요일": 2, "목요일": 3, 
+            "금요일": 4, "토요일": 5, "일요일": 6
+        }
+        
+        for schedule_info in self.schedules:
+            day = schedule_info.get('day', '매일')
+            start_time = schedule_info['start_time']
+            end_time = schedule_info['end_time']
+            
+            target_times = self._calculate_next_execution_times(day, start_time, end_time, weekday_map, now)
+            
+            for target_time, action in target_times:
+                if target_time > now and action == "start":
+                    next_times.append((target_time, schedule_info))
+        
+        if next_times:
+            # 가장 가까운 시간 반환
+            next_time, next_schedule = min(next_times, key=lambda x: x[0])
+            return {
+                'time': next_time,
+                'schedule': next_schedule
+            }
+        
+        return None
+    
+    def get_next_schedule(self):
+        """다음 스케줄 정보 반환 (GUI 헤더용)"""
+        try:
+            if not self.schedules:
+                return None
+                
+            now = datetime.now()
+            next_times = []
+            
+            weekday_map = {
+                "월요일": 0, "화요일": 1, "수요일": 2, "목요일": 3, 
+                "금요일": 4, "토요일": 5, "일요일": 6
+            }
+            
+            # 요일 이름 매핑 (축약형)
+            day_name_map = {
+                "월요일": "월", "화요일": "화", "수요일": "수", "목요일": "목",
+                "금요일": "금", "토요일": "토", "일요일": "일", "매일": "매일"
+            }
+            
+            for schedule_info in self.schedules:
+                day = schedule_info.get('day', '매일')
+                start_time = schedule_info['start_time']
+                end_time = schedule_info['end_time']
+                
+                target_times = self._calculate_next_execution_times(day, start_time, end_time, weekday_map, now)
+                
+                for target_time, action in target_times:
+                    if target_time > now and action == "start":
+                        # 스케줄 정보에 추가 정보 포함
+                        schedule_with_info = {
+                            'day': day,
+                            'day_name': day_name_map.get(day, day),
+                            'start_time': start_time,
+                            'end_time': end_time,
+                            'content': schedule_info.get('name', '방송'),
+                            'media_type': schedule_info.get('media_type', 'youtube'),
+                            'source': schedule_info.get('source', ''),
+                            'target_time': target_time
+                        }
+                        next_times.append((target_time, schedule_with_info))
+            
+            if next_times:
+                # 가장 가까운 시간의 스케줄 반환
+                next_time, next_schedule = min(next_times, key=lambda x: x[0])
+                return next_schedule
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ 다음 스케줄 조회 중 오류: {e}")
+            return None
 
 def test_scheduler():
     """테스트용 스케줄러 - 주말 포함"""
@@ -526,13 +477,43 @@ def test_scheduler():
         day=current_day,
         start_time=start_time,
         end_time=end_time,
-        video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        schedule_name=f"테스트 방송 ({current_day})"
+        source="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        schedule_name=f"테스트 방송 ({current_day})",
+        media_type="youtube"
     )
     
     # 주말인 경우 특별 메시지
     if current_day in ["토요일", "일요일"]:
         print(f"🏖️ 주말 테스트입니다: {current_day}")
+    
+    scheduler.start_scheduler()
+    return scheduler
+
+def test_local_audio_scheduler():
+    """로컬 음원 테스트 스케줄러"""
+    from datetime import datetime, timedelta
+    
+    # 현재 시간 + 5초, +10초로 테스트 시간 설정
+    now = datetime.now()
+    start_time = (now + timedelta(seconds=5)).strftime("%H:%M")
+    end_time = (now + timedelta(seconds=10)).strftime("%H:%M")
+    
+    current_day = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][now.weekday()]
+    
+    print(f"로컬 음원 테스트 스케줄: {start_time} ~ {end_time}")
+    print(f"오늘: {current_day}")
+    
+    scheduler = VideoScheduler()
+    
+    # 로컬 음원 테스트 스케줄 추가
+    scheduler.add_daily_schedule(
+        day=current_day,
+        start_time=start_time,
+        end_time=end_time,
+        source="music/test_audio.mp3",  # 테스트용 로컬 파일
+        schedule_name=f"테스트 음원 ({current_day})",
+        media_type="local_audio"
+    )
     
     scheduler.start_scheduler()
     return scheduler
