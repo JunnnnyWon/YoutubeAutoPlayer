@@ -1,16 +1,21 @@
 {
-  "monday": [
-    {
-      "start_time": "14:36",
-      "end_time": "14:37",
-      "media_type": "🎬 YouTube 비디오",
-      "path": "https://www.youtube.com/watch?v=u121jT4UeAI&list=RDMMu121jT4UeAI&start_radio=1"
-    }
-  ],
-  "tuesday": [],
-  "wednesday": [],
-  "thursday": [],
-  "friday": [],
-  "saturday": [],
-  "sunday": []
+  "schedules": {
+    "monday": [
+      {
+        "start_time": "15:11",
+        "end_time": "15:12",
+        "media_type": "🎬 YouTube 비디오",
+        "path": "https://www.youtube.com/watch?v=u121jT4UeAI&list=RDMMu121jT4UeAI&start_radio=1"
+      }
+    ],
+    "tuesday": [],
+    "wednesday": [],
+    "thursday": [],
+    "friday": [],
+    "saturday": [],
+    "sunday": []
+  },
+  "settings": {
+    "auto_install_extensions": true
+  }
 }

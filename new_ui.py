@@ -1344,19 +1344,67 @@ class ModernVideoScheduler:
                 else:
                     self.show_error_message("실행할 스케줄이 없습니다")
             else:
-                # 스케줄러 중지
-                self.video_scheduler.stop_scheduler()
-                self.scheduler_running = False
+                # 스케줄러 중지 - 응답성 개선
+                print("🛑 사용자가 스케줄러 중지 요청...")
                 
-                # UI 업데이트
-                self.scheduler_btn.config(text="▶️ 자동 스케줄러 시작", bg=self.colors['success'])
-                self.scheduler_status_label.config(text="⏹️ 스케줄러 중지 상태", fg=self.colors['text_muted'])
+                # 즉시 UI 상태 업데이트 (응답성 개선)
+                self.scheduler_btn.config(text="🔄 중지 중...", bg=self.colors['warning'], state='disabled')
+                self.scheduler_status_label.config(text="🔄 스케줄러 중지 중...", fg=self.colors['warning'])
+                self.next_schedule_label.config(text="중지 중...")
                 
-                print("⏹️ 자동 스케줄러가 중지되었습니다")
-                self.show_success_message("자동 스케줄러가 중지되었습니다")
+                # UI 업데이트 강제 적용
+                self.root.update_idletasks()
                 
-                # 다음 스케줄 정보 숨김
-                self.next_schedule_label.config(text="스케줄러 중지")
+                # 백그라운드에서 실제 중지 작업 수행
+                def stop_scheduler_async():
+                    try:
+                        print("🔄 백그라운드에서 스케줄러 중지 실행...")
+                        self.video_scheduler.stop_scheduler()
+                        
+                        # UI 스레드에서 안전하게 UI 업데이트
+                        def update_ui_after_stop():
+                            self.scheduler_running = False
+                            self.scheduler_btn.config(
+                                text="▶️ 자동 스케줄러 시작", 
+                                bg=self.colors['success'], 
+                                state='normal'
+                            )
+                            self.scheduler_status_label.config(
+                                text="⏹️ 스케줄러 중지 상태", 
+                                fg=self.colors['text_muted']
+                            )
+                            self.next_schedule_label.config(text="스케줄러 중지")
+                            
+                            print("✅ 자동 스케줄러 중지 완료")
+                            self.show_success_message("자동 스케줄러가 중지되었습니다")
+                        
+                        # UI 업데이트를 메인 스레드에서 실행
+                        self.root.after(0, update_ui_after_stop)
+                        
+                    except Exception as stop_error:
+                        print(f"❌ 스케줄러 중지 중 오류: {stop_error}")
+                        
+                        # 오류 시에도 UI 복구
+                        def update_ui_on_error():
+                            self.scheduler_running = False
+                            self.scheduler_btn.config(
+                                text="▶️ 자동 스케줄러 시작", 
+                                bg=self.colors['success'], 
+                                state='normal'
+                            )
+                            self.scheduler_status_label.config(
+                                text="⚠️ 중지 중 오류 발생", 
+                                fg=self.colors['danger']
+                            )
+                            self.next_schedule_label.config(text="오류 발생")
+                            self.show_error_message(f"스케줄러 중지 중 오류: {str(stop_error)}")
+                        
+                        self.root.after(0, update_ui_on_error)
+                
+                # 백그라운드 스레드에서 중지 작업 실행
+                import threading
+                stop_thread = threading.Thread(target=stop_scheduler_async, daemon=True)
+                stop_thread.start()
                 
         except Exception as e:
             print(f"❌ 스케줄러 토글 실패: {e}")
@@ -1469,7 +1517,16 @@ class ModernVideoScheduler:
         try:
             if os.path.exists('schedule.json'):
                 with open('schedule.json', 'r', encoding='utf-8') as f:
-                    self.schedule_data = json.load(f)
+                    data = json.load(f)
+                
+                # 이전 버전 호환성 처리
+                if isinstance(data, dict) and 'schedules' in data:
+                    # 새 형식 (설정이 포함된 경우)
+                    self.schedule_data = data.get('schedules', {})
+                else:
+                    # 이전 형식 (스케줄만 있는 경우)
+                    self.schedule_data = data
+                        
                 print(f"📂 스케줄 로드 완료: {sum(len(day_schedules) for day_schedules in self.schedule_data.values())}개 스케줄")
                 
                 # UI 업데이트

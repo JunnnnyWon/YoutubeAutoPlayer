@@ -83,7 +83,7 @@ class MediaController:
             return False
     
     def _safe_quit_driver(self, driver, timeout=3.0):
-        """WebDriver를 타임아웃과 함께 안전하게 종료"""
+        """WebDriver를 타임아웃과 함께 안전하게 종료 - 응답성 개선된 버전"""
         if driver is None:
             return True
             
@@ -93,8 +93,15 @@ class MediaController:
                 self.logger.info("WebDriver가 이미 종료되었습니다")
                 return True
             
-            # 타임아웃을 사용한 안전한 종료
-            import signal
+            # 즉시 종료 시도 (대부분의 경우 빠르게 종료됨)
+            try:
+                driver.quit()
+                self.logger.info("WebDriver 즉시 종료 성공")
+                return True
+            except Exception as immediate_error:
+                self.logger.warning(f"WebDriver 즉시 종료 실패: {immediate_error}")
+            
+            # 즉시 종료 실패 시 타임아웃을 사용한 안전한 종료 (단축된 타임아웃)
             import threading
             
             quit_success = threading.Event()
@@ -105,21 +112,21 @@ class MediaController:
                     driver.quit()
                     quit_success.set()
                 except Exception as e:
-                    self.logger.error(f"driver.quit() 오류: {e}")
+                    self.logger.error(f"driver.quit() 스레드 오류: {e}")
                     quit_error.set()
             
             quit_thread = threading.Thread(target=quit_driver, daemon=True)
             quit_thread.start()
             
-            # 타임아웃 대기
+            # 단축된 타임아웃 대기 (응답성 개선)
             if quit_success.wait(timeout):
-                self.logger.info("WebDriver 정상 종료 완료")
+                self.logger.info("WebDriver 스레드 종료 완료")
                 return True
             elif quit_error.wait(0.1):
-                self.logger.warning("WebDriver 종료 중 오류 발생")
+                self.logger.warning("WebDriver 스레드 종료 중 오류 발생")
                 return False
             else:
-                self.logger.warning(f"WebDriver 종료 타임아웃 ({timeout}초)")
+                self.logger.warning(f"WebDriver 종료 타임아웃 ({timeout}초) - 백그라운드에서 계속 진행")
                 return False
                 
         except Exception as e:
@@ -127,23 +134,26 @@ class MediaController:
             return False
     
     def force_stop_all(self):
-        """모든 미디어 강제 정지 - 긴급 상황용"""
+        """모든 미디어 강제 정지 - 응답성 개선된 버전"""
         self.logger.warning("모든 미디어 강제 정지 실행")
         with self.lock:
             self._set_state(MediaState.STOPPING)
             
-            # YouTube 정지 - 개선된 안전 종료
+            # YouTube 정지 - 단축된 타임아웃으로 빠른 응답
             if self.active_driver:
                 self.logger.info("YouTube WebDriver 강제 종료 시도")
-                success = self._safe_quit_driver(self.active_driver, timeout=2.0)
+                # 응답성을 위해 타임아웃 단축 (3초 -> 1.5초)
+                success = self._safe_quit_driver(self.active_driver, timeout=1.5)
                 if not success:
                     self.logger.warning("WebDriver 강제 종료 - 프로세스 레벨에서 정리됨")
+                        
                 self.active_driver = None
             
             # 로컬 음원 정지
             if self.active_audio_player:
                 try:
                     self.active_audio_player.stop()
+                    self.logger.info("로컬 음원 강제 정지 완료")
                 except Exception as e:
                     self.logger.error(f"로컬 음원 강제 정지 오류: {e}")
                 finally:
@@ -151,11 +161,13 @@ class MediaController:
             
             self.current_media_type = MediaType.NONE
             self._set_state(MediaState.IDLE)
+            self.logger.info("강제 정지 과정 완료")
     
     def safe_stop_current(self):
-        """현재 재생 중인 미디어 안전하게 정지"""
+        """현재 재생 중인 미디어 안전하게 정지 - 응답성 개선된 버전"""
         with self.lock:
             if self.current_state == MediaState.IDLE:
+                self.logger.info("이미 유휴 상태입니다")
                 return True
                 
             self._set_state(MediaState.STOPPING)
@@ -165,9 +177,10 @@ class MediaController:
                 if self.current_media_type == MediaType.YOUTUBE and self.active_driver:
                     self.logger.info("YouTube 재생 안전 정지")
                     
-                    # 향상된 안전 종료 로직
+                    # 향상된 안전 종료 로직 (단축된 타임아웃)
                     if self._is_driver_alive(self.active_driver):
-                        success = self._safe_quit_driver(self.active_driver, timeout=5.0)
+                        # 응답성을 위해 타임아웃 단축 (8초 -> 3초)
+                        success = self._safe_quit_driver(self.active_driver, timeout=3.0)
                         if not success:
                             self.logger.warning("WebDriver 정상 종료 실패, 강제 정리")
                     else:
@@ -178,8 +191,14 @@ class MediaController:
                     
                 elif self.current_media_type == MediaType.LOCAL_AUDIO and self.active_audio_player:
                     self.logger.info("로컬 음원 재생 안전 정지")
-                    self.active_audio_player.stop()
-                    self.active_audio_player = None
+                    try:
+                        self.active_audio_player.stop()
+                        self.logger.info("로컬 음원 정지 완료")
+                    except Exception as audio_error:
+                        self.logger.error(f"로컬 음원 정지 오류: {audio_error}")
+                        success = False
+                    finally:
+                        self.active_audio_player = None
                     
             except Exception as e:
                 self.logger.error(f"미디어 정지 오류: {e}")
@@ -193,6 +212,7 @@ class MediaController:
             finally:
                 self.current_media_type = MediaType.NONE
                 self._set_state(MediaState.IDLE)
+                self.logger.info(f"미디어 정지 과정 완료 (성공: {success})")
                 
             return success
     

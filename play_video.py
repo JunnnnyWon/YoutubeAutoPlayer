@@ -156,63 +156,87 @@ def play_youtube_video(video_url):
             except Exception as e:
                 print(f"⚠️ 음소거 해제 프로세스 실패: {e}")
             
-            # 10. 최종 재생 상태 확인 및 강제 재생
+            # 10. 최종 재생 상태 확인 및 안정화
             time.sleep(3)
             try:
                 print("🔍 최종 재생 상태 확인...")
                 
-                # 여러 방법으로 재생 상태 확인 및 강제 재생
-                for attempt in range(3):
-                    video_element = driver.find_element(By.TAG_NAME, "video")
-                    is_paused = video_element.get_property("paused")
-                    is_muted = video_element.get_property("muted")
-                    
-                    print(f"🔍 재생 상태 체크 {attempt+1}: 일시정지={is_paused}, 음소거={is_muted}")
-                    
-                    if is_paused:
-                        print(f"🔄 비디오가 일시정지 상태입니다. 재생 시도 {attempt+1}...")
-                        
-                        # 여러 방법으로 재생 시도
-                        try:
-                            # 방법 1: JavaScript로 직접 재생
-                            driver.execute_script("document.querySelector('video').play();")
-                            time.sleep(1)
-                        except:
-                            pass
-                            
-                        try:
-                            # 방법 2: 비디오 엘리먼트 클릭
-                            video_element.click()
-                            time.sleep(1)
-                        except:
-                            pass
-                            
-                        try:
-                            # 방법 3: 스페이스바로 재생
-                            ActionChains(driver).send_keys(" ").perform()
-                            time.sleep(1)
-                        except:
-                            pass
-                    
-                    if is_muted:
-                        print("🔇 음소거 상태 감지, 해제 시도...")
+                # 단일 체크로 변경하여 반복 재생 방지
+                video_element = driver.find_element(By.TAG_NAME, "video")
+                is_paused = video_element.get_property("paused")
+                is_muted = video_element.get_property("muted")
+                
+                print(f"🔍 재생 상태: 일시정지={is_paused}, 음소거={is_muted}")
+                
+                # 한 번만 재생 시도 (반복 방지)
+                if is_paused:
+                    print("🔄 비디오가 일시정지 상태입니다. 재생 시도...")
+                    try:
+                        # JavaScript로 한 번만 재생 시도
+                        driver.execute_script("document.querySelector('video').play();")
+                        time.sleep(2)
+                        print("✅ 재생 명령 전송 완료")
+                    except Exception as play_error:
+                        print(f"⚠️ 재생 시도 실패: {play_error}")
+                
+                # 음소거 해제 (한 번만)
+                if is_muted:
+                    print("🔇 음소거 상태 해제...")
+                    try:
                         driver.execute_script("document.querySelector('video').muted = false;")
-                        driver.execute_script("document.querySelector('video').volume = 1.0;")  # 최대 볼륨
-                    
-                    time.sleep(2)
-                    
-                    # 재확인
+                        driver.execute_script("document.querySelector('video').volume = 1.0;")
+                        print("✅ 음소거 해제 완료")
+                    except Exception as mute_error:
+                        print(f"⚠️ 음소거 해제 실패: {mute_error}")
+                
+                # 최종 안정화 대기
+                time.sleep(2)
+                
+                # 최종 상태 확인 (재시도 없이)
+                try:
                     final_paused = video_element.get_property("paused")
                     final_muted = video_element.get_property("muted")
+                    print(f"🏁 최종 상태: 일시정지={final_paused}, 음소거={final_muted}")
                     
                     if not final_paused and not final_muted:
                         print("🎉 비디오 재생 및 음소거 해제 성공!")
-                        break
-                    elif attempt == 2:
-                        print("⚠️ 자동 재생이 완전히 성공하지 못했지만, 비디오가 로드되었습니다.")
+                    else:
+                        print("ℹ️ 비디오가 로드되었습니다. (일부 자동 설정은 사용자가 수동으로 조정해주세요)")
+                        
+                except Exception as final_check_error:
+                    print(f"⚠️ 최종 상태 확인 중 오류: {final_check_error}")
                         
             except Exception as e:
                 print(f"⚠️ 최종 상태 확인 실패: {e}")
+                
+            # YouTube 자동재생 간섭 방지 설정
+            try:
+                print("�️ YouTube 자동재생 간섭 방지 설정 적용...")
+                driver.execute_script("""
+                    // YouTube 자동재생 리스트 비활성화
+                    try {
+                        var autoplayButton = document.querySelector('[data-tooltip-target-id="ytp-autonav-toggle-button"]');
+                        if (autoplayButton && autoplayButton.getAttribute('aria-pressed') === 'true') {
+                            autoplayButton.click();
+                            console.log('자동재생 비활성화 완료');
+                        }
+                    } catch(e) {
+                        console.log('자동재생 설정 변경 중 오류:', e);
+                    }
+                    
+                    // 추천 영상 overlay 제거
+                    try {
+                        var endscreen = document.querySelector('.ytp-endscreen-content');
+                        if (endscreen) {
+                            endscreen.style.display = 'none';
+                        }
+                    } catch(e) {
+                        console.log('추천 영상 제거 중 오류:', e);
+                    }
+                """)
+                print("✅ YouTube 간섭 방지 설정 적용 완료")
+            except Exception as interference_error:
+                print(f"⚠️ 간섭 방지 설정 실패: {interference_error}")
                 
         except Exception as e:
             print(f"❌ 비디오 플레이어 로딩 실패: {e}")

@@ -213,10 +213,29 @@ class VideoScheduler:
         print("🛑 타이머 모니터링 종료")
     
     def _clear_timers(self):
-        """모든 활성 타이머 정리"""
-        for timer in self.active_timers:
-            if timer.is_alive():
-                timer.cancel()
+        """모든 활성 타이머 정리 - 비동기 처리로 개선"""
+        if not self.active_timers:
+            return
+            
+        print(f"🔄 {len(self.active_timers)}개 타이머 정리 중...")
+        
+        # 백그라운드에서 비동기적으로 타이머 정리
+        def clear_timers_async():
+            try:
+                cleared_count = 0
+                for timer in self.active_timers:
+                    if timer.is_alive():
+                        timer.cancel()
+                        cleared_count += 1
+                print(f"✅ {cleared_count}개 타이머 정리 완료")
+            except Exception as e:
+                print(f"⚠️ 타이머 정리 중 오류: {e}")
+        
+        # 백그라운드 스레드에서 실행
+        clear_thread = threading.Thread(target=clear_timers_async, daemon=True)
+        clear_thread.start()
+        
+        # 즉시 리스트 정리 (UI 블로킹 방지)
         self.active_timers.clear()
     
     def _start_media(self, source, schedule_name="방송", media_type="youtube"):
@@ -268,7 +287,7 @@ class VideoScheduler:
             traceback.print_exc()
 
     def _stop_media(self, schedule_name="방송"):
-        """미디어 재생 종료 (YouTube 또는 로컬 음원)"""
+        """미디어 재생 종료 (YouTube 또는 로컬 음원) - 향상된 안전 종료"""
         try:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             current_day_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][datetime.now().weekday()]
@@ -281,44 +300,84 @@ class VideoScheduler:
             status = media_controller.get_current_status()
             print(f"🔍 정지 전 미디어 상태: {status}")
             
-            # 향상된 안전 정지 로직
+            # 현재 미디어가 실제로 활성화되어 있는지 확인
+            is_media_active = (
+                status.get('state') == 'playing' or 
+                status.get('has_youtube') or 
+                status.get('has_audio')
+            )
+            
+            if not is_media_active:
+                print(f"ℹ️ {schedule_name}: 종료할 활성 미디어가 없습니다.")
+                self.driver = None  # 레거시 정리
+                return
+            
+            # 미디어 컨트롤러를 통한 안전 정지
             success = False
             try:
+                print(f"🛑 {schedule_name}: 미디어 컨트롤러를 통한 안전 정지 시도...")
                 success = media_controller.safe_stop_current()
+                
+                if success:
+                    print(f"✅ {schedule_name}: 미디어 컨트롤러를 통한 정지 성공")
+                else:
+                    print(f"⚠️ {schedule_name}: 미디어 컨트롤러 정지 중 일부 문제 발생")
+                    
             except Exception as controller_error:
-                print(f"⚠️ 미디어 컨트롤러 정지 실패: {controller_error}")
-                # 미디어 컨트롤러로 안전 정지 실패 시 강제 정지 시도
+                print(f"❌ {schedule_name}: 미디어 컨트롤러 정지 실패: {controller_error}")
+                success = False
+            
+            # 정지 실패 시 강제 정지 시도
+            if not success:
+                print(f"🔧 {schedule_name}: 강제 정지 시도...")
                 try:
                     media_controller.force_stop_all()
                     success = True
-                    print("🔧 강제 정지로 복구 완료")
+                    print(f"✅ {schedule_name}: 강제 정지 완료")
                 except Exception as force_error:
-                    print(f"❌ 강제 정지도 실패: {force_error}")
+                    print(f"❌ {schedule_name}: 강제 정지도 실패: {force_error}")
             
-            if success:
-                self.driver = None  # 레거시 호환성
-                print(f"✅ {schedule_name} 종료 완료")
-            else:
-                print(f"⚠️ {schedule_name} 종료 중 일부 문제 발생")
-                # 레거시 정리 시도
-                if self.driver:
+            # 레거시 정리 (이중 안전장치)
+            if self.driver:
+                try:
+                    print(f"🔧 {schedule_name}: 레거시 WebDriver 정리 시도...")
+                    # WebDriver 상태 체크
                     try:
-                        # WebDriver 상태 체크 후 정리
-                        try:
-                            self.driver.current_url  # 상태 체크
-                            self.driver.quit()
-                            print("🔧 레거시 방식으로 정상 종료 완료")
-                        except Exception:
-                            print("🔧 레거시 WebDriver가 이미 종료되어 정리만 수행")
-                        self.driver = None
-                    except Exception as fallback_error:
-                        print(f"❌ 레거시 정리도 실패: {fallback_error}")
-                        self.driver = None  # 강제 정리
+                        self.driver.current_url  # 상태 체크
+                        self.driver.quit()
+                        print(f"✅ {schedule_name}: 레거시 WebDriver 정상 종료")
+                    except Exception:
+                        print(f"ℹ️ {schedule_name}: 레거시 WebDriver가 이미 종료되어 정리만 수행")
+                    
+                except Exception as legacy_error:
+                    print(f"⚠️ {schedule_name}: 레거시 정리 중 오류: {legacy_error}")
+                finally:
+                    self.driver = None
+            
+            # 최종 상태 확인
+            try:
+                final_status = media_controller.get_current_status()
+                if final_status.get('state') == 'idle':
+                    print(f"🎯 {schedule_name}: 완전 종료 확인됨")
+                else:
+                    print(f"⚠️ {schedule_name}: 종료 후에도 일부 프로세스가 남아있을 수 있음")
+            except Exception as status_check_error:
+                print(f"⚠️ {schedule_name}: 최종 상태 확인 실패: {status_check_error}")
+            
+            print(f"🏁 {schedule_name}: 종료 과정 완료")
                 
         except Exception as e:
             print(f"❌ {schedule_name} 종료 중 오류 발생: {e}")
             # 오류 발생 시에도 정리는 수행
             self.driver = None
+            try:
+                # 오류 상황에서도 강제 정리 시도
+                media_controller = get_media_controller()
+                media_controller.force_stop_all()
+                print(f"🔧 {schedule_name}: 오류 상황에서 강제 정리 완료")
+            except Exception as emergency_error:
+                print(f"❌ {schedule_name}: 비상 정리도 실패: {emergency_error}")
+            
             import traceback
             traceback.print_exc()
 
@@ -332,62 +391,140 @@ class VideoScheduler:
         return self._stop_media(schedule_name)
 
     def stop_scheduler(self):
-        """스케줄러 중지 - 미디어 컨트롤러 통합"""
+        """스케줄러 중지 - 응답성 개선된 버전"""
         print("\n🛑 스케줄러를 중지합니다...")
+        
+        # 즉시 실행 플래그 비활성화 (새로운 타이머 생성 방지)
         self.is_running = False
         
-        # 직접 타이머 정리
-        self._clear_timers()
-        
-        # 기존 schedule 라이브러리 정리
-        schedule.clear()
-        
-        # 🛡️ 미디어 컨트롤러를 통한 안전한 정지
-        try:
-            media_controller = get_media_controller()
-            media_controller.safe_stop_current()
-        except Exception as e:
-            print(f"⚠️ 미디어 컨트롤러 정지 중 오류: {e}")
-        
-        # 레거시 호환성
-        if self.driver:
+        # 백그라운드에서 정리 작업 수행 (UI 블로킹 방지)
+        def cleanup_async():
             try:
-                self.driver.quit()
-            except Exception:
-                pass
-            self.driver = None
-            
-        self.current_jobs.clear()
-        print("✅ 스케줄러가 중지되었습니다.")
+                print("🧹 백그라운드 정리 작업 시작...")
+                
+                # 1. 타이머 정리 (이미 비동기 처리됨)
+                self._clear_timers()
+                
+                # 2. schedule 라이브러리 정리
+                schedule.clear()
+                
+                # 3. 미디어 컨트롤러를 통한 안전한 정지 (단축된 타임아웃)
+                try:
+                    media_controller = get_media_controller()
+                    # 빠른 정지를 위해 force_stop_all 사용
+                    media_controller.force_stop_all()
+                    print("✅ 미디어 컨트롤러 정지 완료")
+                except Exception as e:
+                    print(f"⚠️ 미디어 컨트롤러 정지 중 오류: {e}")
+                
+                # 4. 레거시 WebDriver 정리 (타임아웃 적용)
+                if self.driver:
+                    try:
+                        import threading
+                        quit_event = threading.Event()
+                        
+                        def quit_driver():
+                            try:
+                                self.driver.quit()
+                                quit_event.set()
+                            except Exception:
+                                quit_event.set()  # 오류가 있어도 완료 처리
+                        
+                        quit_thread = threading.Thread(target=quit_driver, daemon=True)
+                        quit_thread.start()
+                        
+                        # 2초 타임아웃으로 대기
+                        if quit_event.wait(2.0):
+                            print("✅ 레거시 WebDriver 정리 완료")
+                        else:
+                            print("⚠️ 레거시 WebDriver 정리 타임아웃 (백그라운드에서 계속 진행)")
+                            
+                    except Exception as legacy_error:
+                        print(f"⚠️ 레거시 WebDriver 정리 중 오류: {legacy_error}")
+                    finally:
+                        self.driver = None
+                
+                # 5. 작업 목록 정리
+                self.current_jobs.clear()
+                
+                print("🏁 백그라운드 정리 작업 완료")
+                
+            except Exception as e:
+                print(f"❌ 백그라운드 정리 중 오류: {e}")
+        
+        # 백그라운드에서 정리 작업 실행
+        cleanup_thread = threading.Thread(target=cleanup_async, daemon=True)
+        cleanup_thread.start()
+        
+        # UI에 즉시 완료 알림 (실제 정리는 백그라운드에서 진행)
+        print("✅ 스케줄러 중지 요청 완료 (백그라운드 정리 진행 중...)")
+        
+        return True  # UI 응답성을 위해 즉시 반환
     
     def emergency_stop(self):
-        """비상 정지 - 모든 미디어 강제 정지"""
+        """비상 정지 - 모든 미디어 강제 정지 - 응답성 개선된 버전"""
         print("\n🚨 비상 정지!")
         
-        # 🛡️ 미디어 컨트롤러를 통한 강제 정지
-        try:
-            from media_controller import emergency_stop_all_media
-            emergency_stop_all_media()
-            print("🛡️ 미디어 컨트롤러를 통한 강제 정지 완료")
-        except Exception as e:
-            print(f"⚠️ 미디어 컨트롤러 강제 정지 실패: {e}")
-        
-        # 기존 로직 유지 (이중 안전장치)
+        # 즉시 실행 플래그 비활성화
         self.is_running = False
-        self._clear_timers()
-        schedule.clear()
         
-        if self.driver:
+        # 백그라운드에서 강제 정리 (UI 블로킹 방지)
+        def emergency_cleanup():
             try:
-                self.driver.quit()
-                print("🔧 레거시 드라이버 강제 종료 완료")
-            except Exception as e:
-                print(f"⚠️ 레거시 드라이버 종료 실패: {e}")
-            finally:
-                self.driver = None
+                print("� 비상 정리 작업 시작...")
                 
-        self.current_jobs.clear()
-        print("✅ 비상 정지 완료")
+                # 미디어 컨트롤러를 통한 강제 정지
+                try:
+                    from media_controller import emergency_stop_all_media
+                    emergency_stop_all_media()
+                    print("🛡️ 미디어 컨트롤러를 통한 강제 정지 완료")
+                except Exception as e:
+                    print(f"⚠️ 미디어 컨트롤러 강제 정지 실패: {e}")
+                
+                # 타이머 및 스케줄 정리
+                self._clear_timers()
+                schedule.clear()
+                
+                # 레거시 WebDriver 강제 정리 (타임아웃 1초)
+                if self.driver:
+                    try:
+                        import threading
+                        quit_event = threading.Event()
+                        
+                        def force_quit():
+                            try:
+                                self.driver.quit()
+                            except Exception:
+                                pass
+                            finally:
+                                quit_event.set()
+                        
+                        quit_thread = threading.Thread(target=force_quit, daemon=True)
+                        quit_thread.start()
+                        
+                        if quit_event.wait(1.0):
+                            print("🔧 레거시 WebDriver 강제 종료 완료")
+                        else:
+                            print("⚠️ 레거시 WebDriver 강제 종료 타임아웃")
+                            
+                    except Exception as e:
+                        print(f"❌ 레거시 WebDriver 강제 종료 실패: {e}")
+                    finally:
+                        self.driver = None
+                
+                self.current_jobs.clear()
+                print("🏁 비상 정리 완료")
+                
+            except Exception as e:
+                print(f"❌ 비상 정리 중 오류: {e}")
+        
+        # 백그라운드에서 비상 정리 실행
+        emergency_thread = threading.Thread(target=emergency_cleanup, daemon=True)
+        emergency_thread.start()
+        
+        print("✅ 비상 정지 요청 완료 (백그라운드 정리 진행 중...)")
+        
+        return True  # UI 응답성을 위해 즉시 반환
 
     def get_next_execution_time(self):
         """다음 실행 시간 반환 (GUI용)"""
