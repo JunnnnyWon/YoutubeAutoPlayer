@@ -232,6 +232,18 @@ class ModernVideoScheduler:
             'card_shadow': '#e5e7eb'   # 밝은 카드 그림자
         }
         
+        # 폰트 설정 (가독성 개선)
+        self.fonts = {
+            'title': ('맑은 고딕', 28, 'bold'),      # 메인 타이틀
+            'subtitle': ('맑은 고딕', 16, 'bold'),   # 서브 타이틀
+            'header': ('맑은 고딕', 14, 'bold'),     # 헤더
+            'body': ('맑은 고딕', 11),              # 본문
+            'small': ('맑은 고딕', 10),             # 작은 텍스트
+            'button': ('맑은 고딕', 11, 'bold'),     # 버튼
+            'time': ('맑은 고딕', 18, 'bold'),       # 시간 표시
+            'schedule': ('맑은 고딕', 11, 'bold')    # 스케줄 정보
+        }
+        
         # 스케줄 데이터
         self.schedule_data = {
             'monday': [], 'tuesday': [], 'wednesday': [], 'thursday': [],
@@ -245,6 +257,9 @@ class ModernVideoScheduler:
         
         # 현재 선택된 요일
         self.current_day = 'monday'
+        
+        # 다음 스케줄 중복 로그 방지용
+        self.last_next_schedule = None
         
         self.setup_styles()
         self.create_header()
@@ -373,7 +388,7 @@ class ModernVideoScheduler:
         # 메인 타이틀
         title_label = tk.Label(left_frame, 
                               text="CKBS Scheduler",
-                              font=('굴림', 32, 'bold'),
+                              font=self.fonts['title'],
                               bg=self.colors['bg_primary'],
                               fg=self.colors['text_primary'])
         title_label.pack(anchor='w')
@@ -387,29 +402,29 @@ class ModernVideoScheduler:
         time_card_container.pack(side='right', padx=10, pady=10)
         
         time_card = tk.Frame(time_card_container, bg=self.colors['bg_secondary'],
-                            relief='flat', bd=0, width=160, height=80,
+                            relief='flat', bd=0, width=160, height=110,
                             highlightthickness=1, highlightbackground=self.colors['border'])
         time_card.pack(padx=3, pady=3)
         time_card.pack_propagate(False)  # 크기 고정
         
         time_frame = tk.Frame(time_card, bg=self.colors['bg_secondary'])
-        time_frame.pack(padx=20, pady=15, expand=True)
+        time_frame.pack(padx=20, pady=20, expand=True)
         
         # 현재 시간
         self.time_label = tk.Label(time_frame,
                                   text=datetime.now().strftime("%H:%M:%S"),
-                                  font=('굴림', 18, 'bold'),
+                                  font=self.fonts['time'],
                                   bg=self.colors['bg_secondary'],
                                   fg=self.colors['primary'])
         self.time_label.pack()
         
         # 날짜
-        date_label = tk.Label(time_frame,
-                             text=datetime.now().strftime("%Y-%m-%d"),
-                             font=('굴림', 10),
+        self.date_label = tk.Label(time_frame,
+                             text=datetime.now().strftime("%Y.%m.%d"),
+                             font=self.fonts['small'],
                              bg=self.colors['bg_secondary'],
                              fg=self.colors['text_secondary'])
-        date_label.pack()
+        self.date_label.pack()
         
         # 다음 스케줄 카드 (왼쪽)
         next_schedule_card_container = tk.Frame(right_frame, bg=self.colors['bg_primary'])
@@ -427,7 +442,7 @@ class ModernVideoScheduler:
         # 다음 스케줄 제목
         next_schedule_title = tk.Label(next_schedule_frame,
                                       text="�️ 다음 스케줄",
-                                      font=('굴림', 10, 'bold'),
+                                      font=self.fonts['small'],
                                       bg=self.colors['bg_secondary'],
                                       fg=self.colors['text_secondary'])
         next_schedule_title.pack()
@@ -435,7 +450,7 @@ class ModernVideoScheduler:
         # 다음 스케줄 정보
         self.next_schedule_label = tk.Label(next_schedule_frame,
                                            text="스케줄 없음",
-                                           font=('굴림', 11, 'bold'),
+                                           font=self.fonts['schedule'],
                                            bg=self.colors['bg_secondary'],
                                            fg=self.colors['primary'])
         self.next_schedule_label.pack()
@@ -447,6 +462,7 @@ class ModernVideoScheduler:
         """시간 업데이트"""
         current_time = datetime.now()
         self.time_label.config(text=current_time.strftime("%H:%M:%S"))
+        self.date_label.config(text=current_time.strftime("%Y.%m.%d"))
         
         # 다음 스케줄 정보 업데이트
         self.update_next_schedule()
@@ -460,7 +476,11 @@ class ModernVideoScheduler:
             if hasattr(self, 'video_scheduler') and self.video_scheduler:
                 # 백엔드 스케줄러에 등록된 스케줄이 있는지 확인
                 if not self.video_scheduler.schedules:
-                    self.next_schedule_label.config(text="등록된 스케줄 없음")
+                    new_text = "등록된 스케줄 없음"
+                    if self.last_next_schedule != new_text:
+                        self.next_schedule_label.config(text=new_text)
+                        print(f"📅 다음 스케줄 상태: {new_text}")
+                        self.last_next_schedule = new_text
                     return
                 
                 next_schedule = self.video_scheduler.get_next_schedule()
@@ -468,23 +488,34 @@ class ModernVideoScheduler:
                 if next_schedule:
                     day_name = next_schedule.get('day_name', next_schedule.get('day', ''))
                     start_time = next_schedule.get('start_time', '')
-                    content = next_schedule.get('content', '방송')
                     
-                    # 내용이 너무 길면 축약
-                    if len(content) > 20:
-                        content = content[:17] + "..."
+                    # 간단하게 요일과 시간만 표시
+                    schedule_text = f"{day_name} {start_time}"
                     
-                    schedule_text = f"{day_name} {start_time}\n{content}"
-                    self.next_schedule_label.config(text=schedule_text)
-                    print(f"✅ 다음 스케줄 표시: {schedule_text}")
+                    # 이전과 다를 때만 업데이트 및 로그 출력
+                    if self.last_next_schedule != schedule_text:
+                        self.next_schedule_label.config(text=schedule_text)
+                        print(f"✅ 다음 스케줄 변경: {schedule_text}")
+                        self.last_next_schedule = schedule_text
                 else:
-                    self.next_schedule_label.config(text="다음 스케줄 없음")
+                    new_text = "다음 스케줄 없음"
+                    if self.last_next_schedule != new_text:
+                        self.next_schedule_label.config(text=new_text)
+                        print(f"📅 다음 스케줄 상태: {new_text}")
+                        self.last_next_schedule = new_text
             else:
-                self.next_schedule_label.config(text="스케줄러 없음")
+                new_text = "스케줄러 없음"
+                if self.last_next_schedule != new_text:
+                    self.next_schedule_label.config(text=new_text)
+                    print(f"📅 다음 스케줄 상태: {new_text}")
+                    self.last_next_schedule = new_text
                 
         except Exception as e:
-            print(f"❌ 다음 스케줄 업데이트 오류: {e}")
-            self.next_schedule_label.config(text="오류 발생")
+            error_text = "오류 발생"
+            if self.last_next_schedule != error_text:
+                print(f"❌ 다음 스케줄 업데이트 오류: {e}")
+                self.next_schedule_label.config(text=error_text)
+                self.last_next_schedule = error_text
         
     def create_main_content(self):
         """메인 컨텐츠 생성 - 위치 바뀜 (주간 스케줄 왼쪽, 스케줄 설정 오른쪽)"""
@@ -1024,20 +1055,59 @@ class ModernVideoScheduler:
     def delete_schedule_item(self, index):
         """특정 인덱스의 스케줄 삭제"""
         try:
+            # 스케줄러 실행 중에는 삭제 금지
+            if self.scheduler_running:
+                self.show_warning_message(
+                    "⚠️ 스케줄러 실행 중에는 스케줄을 삭제할 수 없습니다.\n\n"
+                    "먼저 스케줄러를 중지한 후 삭제해주세요."
+                )
+                return
+            
             del self.schedule_data[self.current_day][index]
             self.update_modern_schedule_display()
             self.save_schedule()  # 이미 여기서 백엔드 동기화 및 다음 스케줄 업데이트가 이루어짐
             self.show_success_message("스케줄이 삭제되었습니다")
             
-            # 스케줄러가 실행 중이면 재시작
-            if self.scheduler_running:
-                self.restart_scheduler()
-                
         except IndexError:
             self.show_error_message("삭제할 스케줄을 찾을 수 없습니다")
+    
+    def check_time_overlap(self, day, start_time, end_time):
+        """시간 겹침 체크"""
+        try:
+            # 새로운 스케줄의 시간을 분으로 변환
+            start_hour, start_min = map(int, start_time.split(':'))
+            end_hour, end_min = map(int, end_time.split(':'))
+            new_start = start_hour * 60 + start_min
+            new_end = end_hour * 60 + end_min
+            
+            # 해당 요일의 기존 스케줄들과 비교
+            for schedule in self.schedule_data.get(day, []):
+                existing_start_hour, existing_start_min = map(int, schedule['start_time'].split(':'))
+                existing_end_hour, existing_end_min = map(int, schedule['end_time'].split(':'))
+                existing_start = existing_start_hour * 60 + existing_start_min
+                existing_end = existing_end_hour * 60 + existing_end_min
+                
+                # 겹침 체크 (시작시간이 기존 종료시간 전이고, 종료시간이 기존 시작시간 후인 경우)
+                if not (new_end <= existing_start or new_start >= existing_end):
+                    return True, f"{schedule['start_time']} ~ {schedule['end_time']}"
+            
+            return False, None
+            
+        except Exception as e:
+            print(f"❌ 시간 겹침 체크 오류: {e}")
+            return False, None
             
     def add_schedule(self):
         """스케줄 추가"""
+        # 스케줄러 실행 중에는 추가 금지
+        if self.scheduler_running:
+            self.show_warning_message(
+                "⚠️ 스케줄러 실행 중에는 스케줄을 추가할 수 없습니다.\n\n"
+                "스케줄 변경사항이 실행 중인 스케줄에 반영되지 않습니다.\n"
+                "먼저 스케줄러를 중지한 후 추가해주세요."
+            )
+            return
+            
         start_time = f"{self.start_hour.get()}:{self.start_minute.get()}"
         end_time = f"{self.end_hour.get()}:{self.end_minute.get()}"
         media_type = self.media_type.get()
@@ -1078,6 +1148,17 @@ class ModernVideoScheduler:
             
         except ValueError:
             self.show_error_message("시간은 숫자로만 입력해주세요")
+            return
+        
+        # 시간 겹침 체크
+        is_overlap, overlap_time = self.check_time_overlap(self.current_day, start_time, end_time)
+        if is_overlap:
+            self.show_warning_message(
+                f"⚠️ 시간이 겹치는 스케줄이 있습니다!\n\n"
+                f"겹치는 시간대: {overlap_time}\n"
+                f"새로 추가하려는 시간: {start_time} ~ {end_time}\n\n"
+                f"기존 스케줄을 먼저 삭제하거나 다른 시간으로 설정해주세요."
+            )
             return
             
         schedule = {

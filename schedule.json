@@ -1,12 +1,5 @@
 {
-  "monday": [
-    {
-      "start_time": "09:00",
-      "end_time": "18:00",
-      "media_type": "🎬 YouTube 비디오",
-      "path": "https://www.youtube.com/watch?v=u121jT4UeAI&list=RDu121jT4UeAI&start_radio=1"
-    }
-  ],
+  "monday": [],
   "tuesday": [],
   "wednesday": [],
   "thursday": [],
