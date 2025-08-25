@@ -54,39 +54,49 @@ class AntiDetection:
             });
             document.dispatchEvent(event);
         """)
+        time.sleep(random.uniform(0.5, 1.5))
     
     @staticmethod
     def random_scroll(driver):
-        """랜덤 스크롤"""
-        scroll_amount = random.randint(100, 300)
-        driver.execute_script(f"window.scrollTo(0, {scroll_amount});")
+        """랜덤 스크롤 동작"""
+        scroll_commands = [
+            "window.scrollTo(0, 100);",
+            "window.scrollTo(0, 200);",
+            "window.scrollTo(0, 50);",
+            "window.scrollTo(0, 0);"
+        ]
+        
+        for command in random.sample(scroll_commands, 2):
+            driver.execute_script(command)
+            time.sleep(random.uniform(0.5, 1.5))
     
     @staticmethod
     def bypass_video_restrictions(driver):
-        """비디오 제한 우회"""
+        """비디오 제한사항 우회"""
         try:
-            # YouTube 광고 및 제한 우회 시도
+            # 쿠키 동의 버튼 클릭
             driver.execute_script("""
-                // 광고 스킵 버튼 클릭
-                var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-skip-ad-button, .videoAdUiSkipButton');
-                for (var i = 0; i < skipButtons.length; i++) {
-                    if (skipButtons[i].offsetParent !== null) {
-                        skipButtons[i].click();
-                        break;
-                    }
-                }
-                
-                // 자동재생 활성화
-                var video = document.querySelector('video');
-                if (video) {
-                    video.play();
+                var acceptButton = document.querySelector('[aria-label*="Accept"], [aria-label*="동의"], button[contains(text(), "Accept")], button[contains(text(), "동의")]');
+                if (acceptButton) {
+                    acceptButton.click();
                 }
             """)
+            
+            # 로그인 관련 팝업 닫기
+            driver.execute_script("""
+                var closeButtons = document.querySelectorAll('[aria-label*="Close"], [aria-label*="닫기"], button[contains(text(), "Close")], button[contains(text(), "닫기")]');
+                closeButtons.forEach(function(btn) {
+                    if (btn.offsetParent !== null) {
+                        btn.click();
+                    }
+                });
+            """)
+            
         except Exception as e:
-            print(f"비디오 제한 우회 중 오류: {e}")
+            print(f"제한사항 우회 중 오류: {e}")
     
     @staticmethod
-    def wait_for_video_load(driver, timeout=30):
+    def wait_for_video_load(driver, timeout=15):
         """비디오 로딩 대기"""
         try:
             start_time = time.time()
@@ -101,6 +111,63 @@ class AntiDetection:
             return False
         except Exception as e:
             print(f"비디오 로딩 대기 중 오류: {e}")
+            return False
+    
+    @staticmethod
+    def ensure_images_loaded(driver, timeout=10):
+        """이미지 로딩 확인 및 강제 로딩"""
+        try:
+            print("🖼️ 이미지 로딩 상태 확인 중...")
+            
+            # 이미지 로딩 강제 활성화
+            driver.execute_script("""
+                // 이미지 로딩 설정 변경
+                if (navigator.userAgent.includes('Chrome')) {
+                    // Chrome에서 이미지 로딩 활성화
+                    var style = document.createElement('style');
+                    style.innerHTML = 'img { display: block !important; visibility: visible !important; }';
+                    document.head.appendChild(style);
+                }
+                
+                // 모든 이미지 요소 찾기 및 로딩 강제
+                var images = document.querySelectorAll('img');
+                images.forEach(function(img) {
+                    if (!img.complete || img.naturalHeight === 0) {
+                        var src = img.src;
+                        img.src = '';
+                        img.src = src;  // 강제 새로고침
+                    }
+                });
+            """)
+            
+            # 이미지 로딩 대기
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                loaded_images = driver.execute_script("""
+                    var images = document.querySelectorAll('img');
+                    var loaded = 0;
+                    var total = images.length;
+                    
+                    for(var i = 0; i < total; i++) {
+                        if(images[i].complete && images[i].naturalHeight > 0) {
+                            loaded++;
+                        }
+                    }
+                    
+                    return {loaded: loaded, total: total};
+                """)
+                
+                if loaded_images['total'] > 0 and loaded_images['loaded'] > 0:
+                    print(f"✅ 이미지 로딩 완료: {loaded_images['loaded']}/{loaded_images['total']}")
+                    return True
+                
+                time.sleep(1)
+            
+            print("⚠️ 이미지 로딩 타임아웃")
+            return False
+            
+        except Exception as e:
+            print(f"❌ 이미지 로딩 확인 중 오류: {e}")
             return False
 
 
@@ -127,15 +194,25 @@ def setup_anti_detection_chrome_options():
     ]
     chrome_options.add_argument(f"--user-agent={random.choice(user_agents)}")
     
-    # 추가 보안 옵션
+    # 추가 보안 옵션 (확장 프로그램 설치 허용)
     chrome_options.add_argument("--disable-web-security")
     chrome_options.add_argument("--allow-running-insecure-content")
-    chrome_options.add_argument("--disable-extensions")
+    # chrome_options.add_argument("--disable-extensions")  # 확장 프로그램 설치를 위해 비활성화
     chrome_options.add_argument("--disable-plugins-discovery")
+    
+    # 확장 프로그램 설치 허용 설정
+    chrome_options.add_argument("--enable-extensions")
+    chrome_options.add_argument("--load-extension-allow-incognito")
+    chrome_options.add_argument("--allow-external-pages")
+    chrome_options.add_argument("--enable-extension-activity-logging")
+    
+    # 이미지 로딩 관련 설정
+    chrome_options.add_argument("--enable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--enable-gpu-rasterization")
     
     # 자동재생 정책 설정 (음소거 없이 자동재생 허용)
     chrome_options.add_argument("--autoplay-policy=no-user-gesture-required")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     
     # 미디어 관련 설정
     chrome_options.add_argument("--use-fake-ui-for-media-stream")
@@ -147,30 +224,35 @@ def setup_anti_detection_chrome_options():
     chrome_options.add_argument("--no-first-run")
     chrome_options.add_argument("--disable-default-apps")
     
-    # 추가 자동재생 허용 설정
-    chrome_options.add_experimental_option("prefs", {
+    # 통합 Chrome 프리퍼런스 설정
+    chrome_prefs = {
+        # 미디어 및 자동재생 설정
         "profile.default_content_setting_values.media_stream_mic": 1,
         "profile.default_content_setting_values.media_stream_camera": 1,
         "profile.default_content_setting_values.geolocation": 1,
-        "profile.default_content_setting_values.notifications": 1,
+        "profile.default_content_setting_values.notifications": 2,
         "profile.default_content_setting_values.auto_select_certificate": 1,
+        "profile.default_content_setting_values.images": 1,  # 이미지 로딩 허용
+        "profile.managed_default_content_settings.images": 1,  # 이미지 로딩 허용
         "profile.content_settings.exceptions.media_stream_mic": {},
-        "profile.content_settings.exceptions.media_stream_camera": {}
-    })
+        "profile.content_settings.exceptions.media_stream_camera": {},
+        # 확장 프로그램 설치 허용 설정
+        "extensions.ui.developer_mode": True,
+        "profile.default_content_setting_values.plugins": 1,
+        "profile.content_settings.plugin_whitelist.adobe-flash-player": 1,
+        "profile.managed_plugins_allowed_for_urls": [],
+        "extensions.settings": {},
+        "extensions.theme": {},
+        "extensions.install.autoupdate": True,
+        # 언어 및 지역 설정
+        'intl.accept_languages': 'ko-KR,ko,en-US,en'
+    }
+    chrome_options.add_experimental_option('prefs', chrome_prefs)
     chrome_options.add_argument("--disable-bundled-ppapi-flash")
-    chrome_options.add_argument("--disable-plugins")
-    chrome_options.add_argument("--disable-default-apps")
+    # chrome_options.add_argument("--disable-plugins")  # 확장 프로그램을 위해 비활성화
+    # chrome_options.add_argument("--disable-default-apps")  # 확장 프로그램을 위해 비활성화
     
-    # 언어 및 지역 설정
+    # 언어 설정
     chrome_options.add_argument("--lang=ko-KR")
-    chrome_options.add_experimental_option('prefs', {
-        'intl.accept_languages': 'ko-KR,ko,en-US,en',
-        'profile.default_content_setting_values.notifications': 2,
-        'profile.managed_default_content_settings.images': 2  # 이미지 로딩 비활성화로 속도 향상
-    })
-    
-    # 전체화면 시작
-    chrome_options.add_argument("--start-maximized")
-    chrome_options.add_argument("--kiosk")  # 전체화면 키오스크 모드
     
     return chrome_options

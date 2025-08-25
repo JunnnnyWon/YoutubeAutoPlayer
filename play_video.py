@@ -69,22 +69,28 @@ def play_youtube_video(video_url):
             print("❌ 비디오 로딩 실패")
             return driver
         
+        # 5-1. 이미지 로딩 대기 및 확인
+        print("🖼️ 이미지 로딩 확인 중...")
+        AntiDetection.ensure_images_loaded(driver, timeout=8)
+        
         # 6. 추가 제한사항 우회
         AntiDetection.bypass_video_restrictions(driver)
         
-        # 7. 페이지가 완전히 로드될 때까지 대기
-        wait = WebDriverWait(driver, 20)
+        # 7. 페이지가 완전히 로드될 때까지 대기 (타임아웃 단축)
+        wait = WebDriverWait(driver, 10)  # 20초 -> 10초로 단축
         
         try:
             print("🎬 비디오 플레이어 로딩 대기...")
-            # 비디오 플레이어 로딩 대기
+            # 비디오 플레이어 로딩 대기 (타임아웃 단축)
             player = wait.until(EC.presence_of_element_located((By.ID, "movie_player")))
             time.sleep(AntiDetection.human_like_delay())
             
-            # 8. 재생 버튼 클릭 시도
+            # 8. 재생 버튼 클릭 시도 (타임아웃 단축)
             print("▶️ 재생 버튼 클릭 시도...")
             try:
-                play_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.ytp-play-button")))
+                # 짧은 타임아웃으로 재생 버튼 찾기
+                short_wait = WebDriverWait(driver, 5)  # 단축된 타임아웃
+                play_button = short_wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.ytp-play-button")))
                 
                 # 재생 버튼이 일시정지 상태인지 확인 (즉, 비디오가 이미 재생 중인지)
                 aria_label = play_button.get_attribute("aria-label")

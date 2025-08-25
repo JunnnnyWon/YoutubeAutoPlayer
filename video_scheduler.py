@@ -281,24 +281,44 @@ class VideoScheduler:
             status = media_controller.get_current_status()
             print(f"🔍 정지 전 미디어 상태: {status}")
             
-            success = media_controller.safe_stop_current()
+            # 향상된 안전 정지 로직
+            success = False
+            try:
+                success = media_controller.safe_stop_current()
+            except Exception as controller_error:
+                print(f"⚠️ 미디어 컨트롤러 정지 실패: {controller_error}")
+                # 미디어 컨트롤러로 안전 정지 실패 시 강제 정지 시도
+                try:
+                    media_controller.force_stop_all()
+                    success = True
+                    print("🔧 강제 정지로 복구 완료")
+                except Exception as force_error:
+                    print(f"❌ 강제 정지도 실패: {force_error}")
             
             if success:
                 self.driver = None  # 레거시 호환성
                 print(f"✅ {schedule_name} 종료 완료")
             else:
                 print(f"⚠️ {schedule_name} 종료 중 일부 문제 발생")
-                # 강제 정지 시도
+                # 레거시 정리 시도
                 if self.driver:
                     try:
-                        self.driver.quit()
+                        # WebDriver 상태 체크 후 정리
+                        try:
+                            self.driver.current_url  # 상태 체크
+                            self.driver.quit()
+                            print("🔧 레거시 방식으로 정상 종료 완료")
+                        except Exception:
+                            print("🔧 레거시 WebDriver가 이미 종료되어 정리만 수행")
                         self.driver = None
-                        print("🔧 레거시 방식으로 강제 종료 완료")
                     except Exception as fallback_error:
-                        print(f"❌ 강제 종료도 실패: {fallback_error}")
+                        print(f"❌ 레거시 정리도 실패: {fallback_error}")
+                        self.driver = None  # 강제 정리
                 
         except Exception as e:
             print(f"❌ {schedule_name} 종료 중 오류 발생: {e}")
+            # 오류 발생 시에도 정리는 수행
+            self.driver = None
             import traceback
             traceback.print_exc()
 

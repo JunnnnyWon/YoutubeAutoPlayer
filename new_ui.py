@@ -9,6 +9,9 @@ import threading
 from video_scheduler import VideoScheduler
 from media_controller import get_media_controller
 
+# 폰트 매니저 import 추가
+from font_manager import get_font_manager, cleanup_fonts
+
 class RoundedFrame:
     """실제 라운드 코너를 가진 프레임 클래스"""
     def __init__(self, parent, bg_color='#ffffff', width=400, height=300, corner_radius=15):
@@ -57,13 +60,13 @@ class RoundedFrame:
 class RoundedButton:
     """완전히 새로운 라운드 버튼 클래스 - 더 명확한 라운드 처리"""
     def __init__(self, parent, text, command=None, bg_color='#6b7280', fg_color='white', 
-                 font_tuple=('굴림', 11, 'bold'), width=200, height=45, corner_radius=12, show_shadow=False):
+                 font_tuple=None, width=200, height=45, corner_radius=12, show_shadow=False):
         self.parent = parent
         self.text = text
         self.command = command
         self.bg_color = bg_color
         self.fg_color = fg_color
-        self.font_tuple = font_tuple
+        self.font_tuple = font_tuple if font_tuple else ('Arial', 11, 'bold')
         self.width = width
         self.height = height
         self.corner_radius = corner_radius
@@ -229,20 +232,17 @@ class ModernVideoScheduler:
             'shadow': '#f3f4f6',       # 밝은 그림자
             'success': '#10b981',      # 성공 색상 (그린)
             'danger': '#ef4444',       # 위험 색상 (레드)
+            'info': '#3b82f6',         # 정보 색상 (블루)
             'card_shadow': '#e5e7eb'   # 밝은 카드 그림자
         }
         
-        # 폰트 설정 (가독성 개선)
-        self.fonts = {
-            'title': ('맑은 고딕', 28, 'bold'),      # 메인 타이틀
-            'subtitle': ('맑은 고딕', 16, 'bold'),   # 서브 타이틀
-            'header': ('맑은 고딕', 14, 'bold'),     # 헤더
-            'body': ('맑은 고딕', 11),              # 본문
-            'small': ('맑은 고딕', 10),             # 작은 텍스트
-            'button': ('맑은 고딕', 11, 'bold'),     # 버튼
-            'time': ('맑은 고딕', 18, 'bold'),       # 시간 표시
-            'schedule': ('맑은 고딕', 11, 'bold')    # 스케줄 정보
-        }
+        # 폰트 매니저 초기화 및 잠실 폰트 설정
+        self.font_manager = get_font_manager()
+        self.fonts = self.font_manager.create_font_config()
+        
+        print("🔤 사용 중인 폰트 설정:")
+        for name, config in self.fonts.items():
+            print(f"  {name}: {config}")
         
         # 스케줄 데이터
         self.schedule_data = {
@@ -292,10 +292,12 @@ class ModernVideoScheduler:
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         
     def create_rounded_button(self, parent, text, command=None, bg_color=None, fg_color='white', 
-                             font_tuple=('굴림', 12, 'bold'), padx=25, pady=15, width=None):
+                             font_tuple=None, padx=25, pady=15, width=None):
         """라운드 처리된 버튼 생성"""
         if bg_color is None:
             bg_color = self.colors['primary']
+        if font_tuple is None:
+            font_tuple = self.fonts['button']
             
         # 버튼 컨테이너 (라운드 효과를 위한)
         btn_container = tk.Frame(parent, bg=parent.cget('bg'))
@@ -336,7 +338,7 @@ class ModernVideoScheduler:
                        focuscolor='none',
                        relief='flat',
                        padding=(25, 12),
-                       font=('굴림', 10))
+                       font=self.fonts['body'])
         
         style.map('Modern.TButton',
                  background=[('active', self.colors['primary_dark']),
@@ -350,7 +352,7 @@ class ModernVideoScheduler:
                        focuscolor='none',
                        relief='flat',
                        padding=(20, 10),
-                       font=('굴림', 9))
+                       font=self.fonts['small'])
         
         # 모던 콤보박스 스타일
         style.configure('Modern.TCombobox',
@@ -364,7 +366,7 @@ class ModernVideoScheduler:
                        focuscolor=self.colors['primary'],
                        selectbackground=self.colors['primary'],
                        selectforeground='white',
-                       font=('굴림', 10))
+                       font=self.fonts['body'])
         
         # 엔트리 스타일
         style.configure('Modern.TEntry',
@@ -373,7 +375,7 @@ class ModernVideoScheduler:
                        relief='solid',
                        bordercolor=self.colors['border'],
                        focuscolor=self.colors['primary'],
-                       font=('굴림', 10))
+                       font=self.fonts['body'])
         
     def create_header(self):
         """모던 헤더 생성"""
@@ -441,7 +443,7 @@ class ModernVideoScheduler:
         
         # 다음 스케줄 제목
         next_schedule_title = tk.Label(next_schedule_frame,
-                                      text="�️ 다음 스케줄",
+                                      text="🗓️ 다음 스케줄",
                                       font=self.fonts['small'],
                                       bg=self.colors['bg_secondary'],
                                       fg=self.colors['text_secondary'])
@@ -556,19 +558,19 @@ class ModernVideoScheduler:
         title_frame = tk.Frame(header_content, bg=self.colors['primary'])
         title_frame.pack(fill='x')
         
-        icon_label = tk.Label(title_frame, text="�️",
-                             font=('굴림', 20),
+        icon_label = tk.Label(title_frame, text="📅",
+                             font=(self.fonts['header'][0], 20),
                              bg=self.colors['primary'], fg='white')
         icon_label.pack(side='left')
         
         title_label = tk.Label(title_frame, text="주간 스케줄",
-                              font=('굴림', 16, 'bold'),
+                              font=self.fonts['subtitle'],
                               bg=self.colors['primary'], fg='white')
         title_label.pack(side='left', padx=(10, 0))
         
         # 스케줄 상태
         status_label = tk.Label(header_content, text="📊 총 0개의 스케줄",
-                               font=('굴림', 11),
+                               font=self.fonts['body'],
                                bg=self.colors['primary'], fg='white')
         status_label.pack(anchor='w', pady=(5, 0))
         
@@ -618,7 +620,7 @@ class ModernVideoScheduler:
                                       command=make_command(key),
                                       bg_color=bg_color,
                                       fg_color=fg_color,
-                                      font_tuple=('굴림', 12, 'bold'),
+                                      font_tuple=self.fonts['button'],
                                       width=80, height=40, corner_radius=8, show_shadow=False)
             
             self.day_buttons[key] = rounded_btn
@@ -666,12 +668,12 @@ class ModernVideoScheduler:
         title_frame.pack(fill='x')
         
         icon_label = tk.Label(title_frame, text="⚙️",
-                             font=('굴림', 20),
+                             font=(self.fonts['header'][0], 20),
                              bg=self.colors['primary'], fg='white')
         icon_label.pack(side='left')
         
         title_label = tk.Label(title_frame, text="스케줄 설정",
-                              font=('굴림', 16, 'bold'),
+                              font=self.fonts['subtitle'],
                               bg=self.colors['primary'], fg='white')
         title_label.pack(side='left', padx=(10, 0))
         
@@ -695,7 +697,7 @@ class ModernVideoScheduler:
         section_frame.pack(fill='x', pady=(0, 20))
         
         section_title = tk.Label(section_frame, text="🕐 시간 설정",
-                                font=('굴림', 14, 'bold'),
+                                font=self.fonts['header'],
                                 bg=self.colors['bg_secondary'],
                                 fg=self.colors['text_primary'])
         section_title.pack(anchor='w')
@@ -705,7 +707,7 @@ class ModernVideoScheduler:
         start_group.pack(fill='x', pady=(0, 15))
         
         start_label = tk.Label(start_group, text="시작 시간",
-                              font=('굴림', 11),
+                              font=self.fonts['body'],
                               bg=self.colors['bg_secondary'],
                               fg=self.colors['text_primary'])
         start_label.pack(anchor='w', pady=(0, 8))
@@ -717,12 +719,12 @@ class ModernVideoScheduler:
                                       values=[f"{i:02d}" for i in range(24)],
                                       width=6, state='normal', 
                                       style='Modern.TCombobox',
-                                      font=('굴림', 11))
+                                      font=self.fonts['body'])
         self.start_hour.pack(side='left')
         self.start_hour.set("09")
         
         colon1 = tk.Label(start_time_frame, text=":",
-                         font=('굴림', 14),
+                         font=self.fonts['header'],
                          bg=self.colors['bg_secondary'],
                          fg=self.colors['text_primary'])
         colon1.pack(side='left', padx=8)
@@ -731,7 +733,7 @@ class ModernVideoScheduler:
                                         values=[f"{i:02d}" for i in range(0, 60)],
                                         width=6, state='normal',
                                         style='Modern.TCombobox',
-                                        font=('굴림', 11))
+                                        font=self.fonts['body'])
         self.start_minute.pack(side='left')
         self.start_minute.set("00")
         
@@ -740,7 +742,7 @@ class ModernVideoScheduler:
         end_group.pack(fill='x', pady=(0, 20))
         
         end_label = tk.Label(end_group, text="종료 시간",
-                            font=('굴림', 11),
+                            font=self.fonts['body'],
                             bg=self.colors['bg_secondary'],
                             fg=self.colors['text_primary'])
         end_label.pack(anchor='w', pady=(0, 8))
@@ -752,12 +754,12 @@ class ModernVideoScheduler:
                                     values=[f"{i:02d}" for i in range(24)],
                                     width=6, state='normal',
                                     style='Modern.TCombobox',
-                                    font=('굴림', 11))
+                                    font=self.fonts['body'])
         self.end_hour.pack(side='left')
         self.end_hour.set("18")
         
         colon2 = tk.Label(end_time_frame, text=":",
-                         font=('굴림', 14),
+                         font=self.fonts['header'],
                          bg=self.colors['bg_secondary'],
                          fg=self.colors['text_primary'])
         colon2.pack(side='left', padx=8)
@@ -766,7 +768,7 @@ class ModernVideoScheduler:
                                       values=[f"{i:02d}" for i in range(0, 60)],
                                       width=6, state='normal',
                                       style='Modern.TCombobox',
-                                      font=('굴림', 11))
+                                      font=self.fonts['body'])
         self.end_minute.pack(side='left')
         self.end_minute.set("00")
         
@@ -780,8 +782,8 @@ class ModernVideoScheduler:
         section_frame = tk.Frame(parent, bg=self.colors['bg_secondary'])
         section_frame.pack(fill='x', pady=(0, 20))
         
-        section_title = tk.Label(section_frame, text="� 미디어 설정",
-                                font=('굴림', 14, 'bold'),
+        section_title = tk.Label(section_frame, text="🎵 미디어 설정",
+                                font=self.fonts['emoji_subtitle'],
                                 bg=self.colors['bg_secondary'],
                                 fg=self.colors['text_primary'])
         section_title.pack(anchor='w')
@@ -791,24 +793,24 @@ class ModernVideoScheduler:
         type_group.pack(fill='x', pady=(0, 15))
         
         type_label = tk.Label(type_group, text="미디어 타입",
-                             font=('굴림', 11),
+                             font=self.fonts['body'],
                              bg=self.colors['bg_secondary'],
                              fg=self.colors['text_primary'])
         type_label.pack(anchor='w', pady=(0, 8))
         
         self.media_type = ttk.Combobox(type_group,
-                                      values=["� YouTube 비디오", "� 로컬 오디오", "� 로컬 비디오"],
+                                      values=["🎬 YouTube 비디오", "🎵 로컬 오디오", "📹 로컬 비디오"],
                                       state='readonly', style='Modern.TCombobox',
-                                      font=('굴림', 11))
+                                      font=self.fonts['body'])
         self.media_type.pack(fill='x')
-        self.media_type.set("� YouTube 비디오")
+        self.media_type.set("🎬 YouTube 비디오")
         
         # 파일/링크 경로
         path_group = tk.Frame(parent, bg=self.colors['bg_secondary'])
         path_group.pack(fill='x', pady=(0, 20))
         
         path_label = tk.Label(path_group, text="링크 또는 파일 경로",
-                             font=('굴림', 11),
+                             font=self.fonts['body'],
                              bg=self.colors['bg_secondary'],
                              fg=self.colors['text_primary'])
         path_label.pack(anchor='w', pady=(0, 8))
@@ -816,7 +818,7 @@ class ModernVideoScheduler:
         path_frame = tk.Frame(path_group, bg=self.colors['bg_secondary'])
         path_frame.pack(fill='x')
         
-        self.media_path = tk.Entry(path_frame, font=('굴림', 11),
+        self.media_path = tk.Entry(path_frame, font=self.fonts['body'],
                                   relief='flat', bd=0,
                                   borderwidth=2,
                                   highlightthickness=2,
@@ -832,7 +834,7 @@ class ModernVideoScheduler:
                                          command=self.browse_file,
                                          bg_color=self.colors['bg_hover'],
                                          fg_color=self.colors['text_primary'],
-                                         font_tuple=('굴림', 10),
+                                         font_tuple=self.fonts['emoji'],
                                          width=100, height=35, corner_radius=8, show_shadow=False)
         
     def create_action_buttons(self, parent):
@@ -849,7 +851,7 @@ class ModernVideoScheduler:
                           command=self.add_schedule,
                           bg=self.colors['primary'],
                           fg='white',
-                          font=('굴림', 12, 'bold'),
+                          font=self.fonts['button'],
                           relief='flat',
                           bd=0,
                           padx=20,
@@ -862,7 +864,7 @@ class ModernVideoScheduler:
                                      command=self.toggle_scheduler,
                                      bg=self.colors['success'],
                                      fg='white',
-                                     font=('굴림', 12, 'bold'),
+                                     font=self.fonts['button'],
                                      relief='flat',
                                      bd=0,
                                      padx=20,
@@ -872,10 +874,23 @@ class ModernVideoScheduler:
         
         # 스케줄러 상태 표시 레이블
         self.scheduler_status_label = tk.Label(button_frame, text="⏹️ 스케줄러 중지 상태",
-                                             font=('굴림', 10),
+                                             font=self.fonts['small'],
                                              bg=self.colors['bg_secondary'],
                                              fg=self.colors['text_muted'])
         self.scheduler_status_label.pack(pady=(10, 0))
+        
+        # 폰트 테스트 버튼
+        font_test_btn = tk.Button(button_frame, text="🔤 폰트 테스트",
+                                command=self.test_fonts,
+                                bg=self.colors['info'],
+                                fg='white',
+                                font=self.fonts['emoji'],
+                                relief='flat',
+                                bd=0,
+                                padx=15,
+                                pady=8,
+                                cursor='hand2')
+        font_test_btn.pack(pady=(15, 0))
         
     def update_modern_schedule_display(self):
         """모던 스케줄 표시 업데이트 - 상단부터 스택"""
@@ -894,19 +909,19 @@ class ModernVideoScheduler:
             center_frame.pack(expand=True)
             
             empty_icon = tk.Label(center_frame, text="📋",
-                                 font=('굴림', 48),
+                                 font=self.fonts['emoji_large'],
                                  bg=self.colors['bg_secondary'],
                                  fg=self.colors['text_muted'])
             empty_icon.pack()
             
             empty_text = tk.Label(center_frame, text="아직 스케줄이 없습니다",
-                                 font=('굴림', 16),
+                                 font=self.fonts['subtitle'],
                                  bg=self.colors['bg_secondary'],
                                  fg=self.colors['text_muted'])
             empty_text.pack(pady=(10, 0))
             
             empty_subtext = tk.Label(center_frame, text="오른쪽 패널에서 새 스케줄을 추가해보세요",
-                                    font=('굴림', 12),
+                                    font=self.fonts['body'],
                                     bg=self.colors['bg_secondary'],
                                     fg=self.colors['text_muted'])
             empty_subtext.pack(pady=(5, 0))
@@ -934,7 +949,7 @@ class ModernVideoScheduler:
         # 시간 표시
         time_label = tk.Label(time_frame,
                              text=f"🕒 {schedule['start_time']} - {schedule['end_time']}",
-                             font=('굴림', 12, 'bold'),
+                             font=self.fonts['emoji'],
                              bg='white', fg=self.colors['primary'])
         time_label.pack(side='left')
         
@@ -943,7 +958,7 @@ class ModernVideoScheduler:
         delete_btn_container.pack(side='right')
         
         delete_btn = tk.Button(delete_btn_container, text="❌",
-                              font=('굴림', 9),
+                              font=self.fonts['emoji'],
                               bg='white', fg=self.colors['danger'],
                               bd=0, relief='flat',
                               cursor='hand2',
@@ -958,7 +973,7 @@ class ModernVideoScheduler:
         
         media_label = tk.Label(media_frame,
                               text=schedule['media_type'],
-                              font=('굴림', 11),
+                              font=self.fonts['body'],
                               bg='white', fg=self.colors['text_secondary'])
         media_label.pack(anchor='w')
         
@@ -973,7 +988,7 @@ class ModernVideoScheduler:
             
         path_label = tk.Label(path_frame,
                              text=f"🔗 {path_text}",
-                             font=('굴림', 10),
+                             font=self.fonts['emoji'],
                              bg='white', fg=self.colors['text_secondary'],
                              wraplength=700, justify='left')
         path_label.pack(anchor='w')
@@ -1058,8 +1073,12 @@ class ModernVideoScheduler:
             # 스케줄러 실행 중에는 삭제 금지
             if self.scheduler_running:
                 self.show_warning_message(
-                    "⚠️ 스케줄러 실행 중에는 스케줄을 삭제할 수 없습니다.\n\n"
-                    "먼저 스케줄러를 중지한 후 삭제해주세요."
+                    "⚠️ 스케줄러 실행 중입니다!\n\n"
+                    "스케줄 실행 중에는 스케줄을 삭제할 수 없습니다.\n"
+                    "실행 중인 스케줄을 갑자기 삭제하면 예기치 않은\n"
+                    "오류가 발생할 수 있습니다.\n\n"
+                    "📌 먼저 '자동 스케줄러 중지' 버튼을 클릭한 후\n"
+                    "   스케줄을 삭제해주세요."
                 )
                 return
             
@@ -1102,9 +1121,11 @@ class ModernVideoScheduler:
         # 스케줄러 실행 중에는 추가 금지
         if self.scheduler_running:
             self.show_warning_message(
-                "⚠️ 스케줄러 실행 중에는 스케줄을 추가할 수 없습니다.\n\n"
-                "스케줄 변경사항이 실행 중인 스케줄에 반영되지 않습니다.\n"
-                "먼저 스케줄러를 중지한 후 추가해주세요."
+                "⚠️ 스케줄러 실행 중입니다!\n\n"
+                "스케줄 실행 중에는 새로운 스케줄을 추가할 수 없습니다.\n"
+                "변경사항이 실행 중인 스케줄에 올바르게 반영되지 않을 수 있습니다.\n\n"
+                "📌 먼저 '자동 스케줄러 중지' 버튼을 클릭한 후\n"
+                "   스케줄을 추가해주세요."
             )
             return
             
@@ -1154,10 +1175,13 @@ class ModernVideoScheduler:
         is_overlap, overlap_time = self.check_time_overlap(self.current_day, start_time, end_time)
         if is_overlap:
             self.show_warning_message(
-                f"⚠️ 시간이 겹치는 스케줄이 있습니다!\n\n"
-                f"겹치는 시간대: {overlap_time}\n"
-                f"새로 추가하려는 시간: {start_time} ~ {end_time}\n\n"
-                f"기존 스케줄을 먼저 삭제하거나 다른 시간으로 설정해주세요."
+                f"⚠️ 스케줄 시간이 겹칩니다!\n\n"
+                f"📅 기존 스케줄: {overlap_time}\n"
+                f"🆕 새 스케줄: {start_time} ~ {end_time}\n\n"
+                f"❌ 같은 시간대에 두 개의 스케줄을 실행할 수 없습니다.\n\n"
+                f"💡 해결 방법:\n"
+                f"   • 기존 스케줄을 먼저 삭제하거나\n"
+                f"   • 겹치지 않는 다른 시간으로 설정해주세요"
             )
             return
             
@@ -1371,6 +1395,9 @@ class ModernVideoScheduler:
             if hasattr(self, 'media_controller'):
                 self.media_controller.force_stop_all()
             
+            # 폰트 정리
+            cleanup_fonts()
+            
             print("✅ 정리 완료")
             
         except Exception as e:
@@ -1378,6 +1405,14 @@ class ModernVideoScheduler:
         
         finally:
             self.root.destroy()
+        
+    def test_fonts(self):
+        """폰트 테스트 창 열기"""
+        try:
+            self.font_manager.test_fonts(self.root)
+        except Exception as e:
+            print(f"❌ 폰트 테스트 오류: {e}")
+            self.show_error_message(f"폰트 테스트 중 오류가 발생했습니다: {str(e)}")
         
     def browse_file(self):
         """파일 찾기"""

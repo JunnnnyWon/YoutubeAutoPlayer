@@ -69,20 +69,76 @@ class MediaController:
         with self.lock:
             return self.current_state in [MediaState.LOADING, MediaState.PLAYING, MediaState.STOPPING]
     
+    def _is_driver_alive(self, driver) -> bool:
+        """WebDriver가 살아있는지 안전하게 확인"""
+        if driver is None:
+            return False
+        
+        try:
+            # 짧은 타임아웃으로 driver 상태 체크
+            driver.current_url
+            return True
+        except Exception as e:
+            self.logger.warning(f"WebDriver 상태 체크 실패: {e}")
+            return False
+    
+    def _safe_quit_driver(self, driver, timeout=3.0):
+        """WebDriver를 타임아웃과 함께 안전하게 종료"""
+        if driver is None:
+            return True
+            
+        try:
+            # 먼저 driver가 살아있는지 확인
+            if not self._is_driver_alive(driver):
+                self.logger.info("WebDriver가 이미 종료되었습니다")
+                return True
+            
+            # 타임아웃을 사용한 안전한 종료
+            import signal
+            import threading
+            
+            quit_success = threading.Event()
+            quit_error = threading.Event()
+            
+            def quit_driver():
+                try:
+                    driver.quit()
+                    quit_success.set()
+                except Exception as e:
+                    self.logger.error(f"driver.quit() 오류: {e}")
+                    quit_error.set()
+            
+            quit_thread = threading.Thread(target=quit_driver, daemon=True)
+            quit_thread.start()
+            
+            # 타임아웃 대기
+            if quit_success.wait(timeout):
+                self.logger.info("WebDriver 정상 종료 완료")
+                return True
+            elif quit_error.wait(0.1):
+                self.logger.warning("WebDriver 종료 중 오류 발생")
+                return False
+            else:
+                self.logger.warning(f"WebDriver 종료 타임아웃 ({timeout}초)")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"WebDriver 안전 종료 실패: {e}")
+            return False
+    
     def force_stop_all(self):
         """모든 미디어 강제 정지 - 긴급 상황용"""
         self.logger.warning("모든 미디어 강제 정지 실행")
         with self.lock:
             self._set_state(MediaState.STOPPING)
             
-            # YouTube 정지
+            # YouTube 정지 - 개선된 안전 종료
             if self.active_driver:
-                try:
-                    self.active_driver.quit()
-                except Exception as e:
-                    self.logger.error(f"YouTube 강제 정지 오류: {e}")
-                finally:
-                    self.active_driver = None
+                self.logger.info("YouTube WebDriver 강제 종료 시도")
+                success = self._safe_quit_driver(self.active_driver, timeout=2.0)
+                if not success:
+                    self.logger.warning("WebDriver 강제 종료 - 프로세스 레벨에서 정리됨")
+                self.active_driver = None
             
             # 로컬 음원 정지
             if self.active_audio_player:
@@ -108,7 +164,16 @@ class MediaController:
             try:
                 if self.current_media_type == MediaType.YOUTUBE and self.active_driver:
                     self.logger.info("YouTube 재생 안전 정지")
-                    self.active_driver.quit()
+                    
+                    # 향상된 안전 종료 로직
+                    if self._is_driver_alive(self.active_driver):
+                        success = self._safe_quit_driver(self.active_driver, timeout=5.0)
+                        if not success:
+                            self.logger.warning("WebDriver 정상 종료 실패, 강제 정리")
+                    else:
+                        self.logger.info("WebDriver가 이미 종료되어 있어 정리만 수행")
+                        success = True
+                    
                     self.active_driver = None
                     
                 elif self.current_media_type == MediaType.LOCAL_AUDIO and self.active_audio_player:
@@ -118,6 +183,11 @@ class MediaController:
                     
             except Exception as e:
                 self.logger.error(f"미디어 정지 오류: {e}")
+                # 오류가 발생해도 정리는 수행
+                if self.current_media_type == MediaType.YOUTUBE:
+                    self.active_driver = None
+                elif self.current_media_type == MediaType.LOCAL_AUDIO:
+                    self.active_audio_player = None
                 success = False
             
             finally:
@@ -150,6 +220,13 @@ class MediaController:
             self.logger.info("YouTube 비디오 로딩 중...")
             driver = play_youtube_video(video_url)
             
+            # 드라이버 상태 검증
+            if driver is None:
+                raise Exception("WebDriver 생성 실패")
+            
+            if not self._is_driver_alive(driver):
+                raise Exception("WebDriver가 생성되었지만 응답하지 않음")
+            
             with self.lock:
                 self.active_driver = driver
                 self._set_state(MediaState.PLAYING)
@@ -158,7 +235,15 @@ class MediaController:
             if end_time:
                 def auto_stop():
                     time.sleep(end_time)
-                    self.safe_stop_current()
+                    # 종료 시에도 WebDriver 상태 체크
+                    if self.active_driver and self._is_driver_alive(self.active_driver):
+                        self.safe_stop_current()
+                    else:
+                        self.logger.info("자동 종료 시점에 WebDriver가 이미 종료됨")
+                        with self.lock:
+                            self.active_driver = None
+                            self.current_media_type = MediaType.NONE
+                            self._set_state(MediaState.IDLE)
                 
                 stop_thread = threading.Thread(target=auto_stop, daemon=True)
                 stop_thread.start()
@@ -230,6 +315,32 @@ class MediaController:
                     return True
             time.sleep(0.1)
         return False
+    
+    def start_health_monitor(self):
+        """WebDriver 상태 모니터링 시작"""
+        def monitor():
+            while True:
+                try:
+                    with self.lock:
+                        if (self.current_media_type == MediaType.YOUTUBE and 
+                            self.active_driver and 
+                            self.current_state == MediaState.PLAYING):
+                            
+                            if not self._is_driver_alive(self.active_driver):
+                                self.logger.warning("WebDriver 응답 없음 감지 - 자동 정리")
+                                self.active_driver = None
+                                self.current_media_type = MediaType.NONE
+                                self._set_state(MediaState.IDLE)
+                    
+                    time.sleep(5)  # 5초마다 체크
+                    
+                except Exception as e:
+                    self.logger.error(f"상태 모니터링 오류: {e}")
+                    time.sleep(10)  # 오류 시 더 긴 대기
+        
+        monitor_thread = threading.Thread(target=monitor, daemon=True)
+        monitor_thread.start()
+        self.logger.info("WebDriver 상태 모니터링 시작")
 
 # 전역 미디어 컨트롤러 인스턴스
 _global_media_controller = None
@@ -239,6 +350,8 @@ def get_media_controller() -> MediaController:
     global _global_media_controller
     if _global_media_controller is None:
         _global_media_controller = MediaController()
+        # 자동으로 상태 모니터링 시작
+        _global_media_controller.start_health_monitor()
     return _global_media_controller
 
 def emergency_stop_all_media():
