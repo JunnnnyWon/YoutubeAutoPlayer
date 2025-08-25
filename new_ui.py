@@ -204,7 +204,7 @@ class RoundedButton:
 class ModernVideoScheduler:
     def __init__(self, root):
         self.root = root
-        self.root.title("� CKBS Scheduler")
+        self.root.title("CKBS Scheduler Program")
         self.root.geometry("1400x1000")  # 높이를 900에서 1000으로 증가
         self.root.configure(bg='#f7fafc')
         # 일반 창 모드로 시작 (전체화면 제거)
@@ -387,21 +387,21 @@ class ModernVideoScheduler:
         left_frame = tk.Frame(header_frame, bg=self.colors['bg_primary'])
         left_frame.pack(side='left', fill='y')
         
-        # 메인 타이틀
+        # 메인 타이틀 (카드들과 같은 높이에 맞추기 위해 패딩 추가)
         title_label = tk.Label(left_frame, 
-                              text="CKBS Scheduler",
+                              text="CKBS Scheduler Program",
                               font=self.fonts['title'],
                               bg=self.colors['bg_primary'],
                               fg=self.colors['text_primary'])
-        title_label.pack(anchor='w')
+        title_label.pack(anchor='w', pady=(20, 0))
         
         # 오른쪽: 현재 시간과 상태
         right_frame = tk.Frame(header_frame, bg=self.colors['bg_primary'])
-        right_frame.pack(side='right', fill='y', padx=(0, 20))
+        right_frame.pack(side='right', fill='y')
         
         # 현재 시간 카드 - 라운드 처리 (오른쪽)
         time_card_container = tk.Frame(right_frame, bg=self.colors['bg_primary'])
-        time_card_container.pack(side='right', padx=10, pady=10)
+        time_card_container.pack(side='right', padx=(10, 5), pady=10)
         
         time_card = tk.Frame(time_card_container, bg=self.colors['bg_secondary'],
                             relief='flat', bd=0, width=160, height=110,
@@ -430,7 +430,7 @@ class ModernVideoScheduler:
         
         # 다음 스케줄 카드 (왼쪽)
         next_schedule_card_container = tk.Frame(right_frame, bg=self.colors['bg_primary'])
-        next_schedule_card_container.pack(side='right', padx=10, pady=10)
+        next_schedule_card_container.pack(side='right', padx=(10, 5), pady=10)
         
         next_schedule_card = tk.Frame(next_schedule_card_container, bg=self.colors['bg_secondary'],
                                     relief='flat', bd=0, width=250, height=80,
