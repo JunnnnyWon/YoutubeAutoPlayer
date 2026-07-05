@@ -1,80 +1,76 @@
-# CKBS Scheduler Program
+# CKBS Scheduler
 
-A modern broadcasting-style school music scheduling system with support for both YouTube playlists and local audio files.
+Desktop scheduler for school broadcast playback with YouTube playlist support, local audio playback, and weekly time slots.
+
+<p>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.7%2B-3776AB?style=flat-square&logo=python&logoColor=white" />
+  <img alt="Tkinter" src="https://img.shields.io/badge/UI-Tkinter-0f766e?style=flat-square" />
+  <img alt="Selenium" src="https://img.shields.io/badge/browser-Selenium-43B02A?style=flat-square&logo=selenium&logoColor=white" />
+  <img alt="Audio" src="https://img.shields.io/badge/audio-pygame-f97316?style=flat-square" />
+</p>
+
+## Overview
+
+CKBS Scheduler is a local desktop app for running recurring broadcast music. It combines a Tkinter operator UI, a weekly schedule file, Selenium-based YouTube playback, and pygame-backed local audio playback behind a single media controller.
 
 ## Features
 
-- 🎵 **Dual Media Support**: YouTube playlists and local audio files
-- ⏰ **Advanced Scheduling**: Weekly schedule with hourly precision
-- 🎨 **Modern UI**: Tkinter-based interface with custom Pretendard fonts
-- 🔄 **Conflict Prevention**: Unified media controller prevents simultaneous playback
-- 📊 **Real-time Monitoring**: Live broadcast log and current playing status
-- 💾 **Persistent Settings**: Automatic configuration saving
+| Area | Details |
+| --- | --- |
+| Scheduling | Weekly schedule with start and end times |
+| Media | YouTube URLs and local audio files |
+| Playback control | Unified controller prevents overlapping media sessions |
+| UI | Tkinter interface with bundled Pretendard font files |
+| Persistence | Schedule and settings stored as local JSON |
+| Browser playback | Chrome profile support for YouTube sessions |
 
-## Files Structure
+## Runtime Flow
 
-```
-YoutubeAutoPlayer/
-├── new_ui.py             # Main Tkinter GUI application
-├── video_scheduler.py    # Core scheduling engine
-├── media_controller.py   # Unified media playback controller
-├── play_video.py         # YouTube video playback with anti-detection
-├── audio_player.py       # Local audio file playback
-├── font_manager.py       # Custom font management (Pretendard)
-├── anti_detection.py     # Chrome anti-detection settings
-├── schedule.json         # Schedule data storage
-├── Pretendard-1.3.9/     # Custom font files
-└── README.md            # This file
+```mermaid
+flowchart LR
+  UI["new_ui.py"] --> Scheduler["video_scheduler.py"]
+  Scheduler --> Controller["media_controller.py"]
+  Controller --> YouTube["play_video.py + Chrome"]
+  Controller --> Audio["audio_player.py + pygame"]
+  UI --> Schedule["schedule.json"]
+  Font["Pretendard fonts"] --> UI
 ```
 
-## Requirements
+## Getting Started
 
-- Python 3.7+
-- tkinter (usually included with Python)
-- Selenium WebDriver
-- pygame (for audio playback)
-- Chrome browser
-
-## Installation
-
-1. Install required packages:
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-2. **Chrome Extensions Setup** (Important for team members):
-   - The program uses Chrome with specific settings for YouTube playback
-   - Chrome extensions need to be installed individually on each machine
-   - When first running the program, Chrome will open with extension installation enabled
-   - Install any required extensions manually as they cannot be shared via Git
-
-3. Run the application:
-```bash
 python new_ui.py
 ```
 
-## Usage
+On Windows, activate the virtual environment with:
 
-1. **Schedule Setup**: Set weekly schedules with precise start/end times
-2. **Media Configuration**: Add YouTube URLs or local audio files
-3. **Monitor**: View real-time broadcast logs and current status
-4. **Font Display**: Automatic Pretendard font loading for modern UI
+```bat
+.venv\Scripts\activate
+```
 
-## Note for Team Members
+## Repository Layout
 
-⚠️ **Important**: The `profile/` folder contains Chrome user data but **extensions cannot be shared**
+```text
+.
+├── new_ui.py                 # Main Tkinter app
+├── video_scheduler.py        # Schedule evaluation
+├── media_controller.py       # Single playback coordinator
+├── play_video.py             # YouTube playback automation
+├── audio_player.py           # Local audio playback
+├── anti_detection.py         # Chrome launch settings
+├── font_manager.py           # Pretendard font loading
+├── schedule.json             # Local schedule data
+├── Pretendard-1.3.9/         # Bundled font files
+└── Release/                  # Packaged user guide and release notes
+```
 
-- Each team member must install Chrome extensions individually
-- The program creates a Chrome profile locally but extensions require manual installation
-- Settings and schedules in `schedule.json` will sync across team members
-- Font files are included and will load automatically
+## Chrome Profile Note
 
-## Why Extensions Don't Transfer
+The app can create and reuse a local Chrome profile for YouTube playback. Browser extensions and account-specific Chrome state should be configured on each machine instead of being shared through Git.
 
-Chrome extensions are tied to:
-- User-specific security tokens
-- Installation metadata stored outside the profile folder
-- Google account authentication
-- Machine-specific permissions
+## Build Notes
 
-**Solution**: Each team member should manually install required Chrome extensions when first running the program.
+`CKBS_Scheduler.spec` is included for PyInstaller-based packaging. Validate playback on the target machine because Chrome, audio devices, and extension state are machine-specific.
